@@ -33,6 +33,7 @@ changes.
 | `assertion` | object | yes | Contains `form` (predicate/annotation), optional `expression`, optional `text` |
 | `origin` | object | yes | Contains `kind` and `producer` |
 | `anchor` | object | yes | Contains `tree` (elench OID) and `strategy` |
+| timestamp | integer (Unix epoch) | yes | Set by producer at emission. Used by ADR-0007 for deterministic commit synthesis. |
 | `evidence` | array | no | Empty for agent-asserted claims by default |
 | `dependsOn` | array of claim ids | no | Premises. Transitive closure IS the blast radius. |
 
@@ -145,16 +146,17 @@ generated on demand.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| path | string | yes | Path relative to tree root. |
-| mode | integer | yes | File mode (e.g., 0o100644 for regular file). |
-| blob | string `[0-9a-f]{64}` | yes | SHA-256 content hash of the blob. |
+| name | string | yes | Entry name within the parent tree (e.g., "lib.rs", "src"). NOT a full path — git-compatible. |
+| mode | integer | yes | File mode (0o100644 regular file, 0o100755 executable, 0o120000 symlink, 0o040000 directory). |
+| oid | string `[0-9a-f]{64}` | yes | SHA-256 content hash. For files: blob OID. For directories: tree OID. |
+| kind | enum: blob, tree | yes | Whether this entry is a blob (file) or a tree (directory). |
 
 ### Tree
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| oid | string `[0-9a-f]{64}` | yes | SHA-256 content hash of the tree (sorted entries, canonical serialization). Identical to git SHA-256 tree OID. |
-| entries | array of TreeEntry | yes | Sorted by path. |
+| oid | string `[0-9a-f]{64}` | yes | SHA-256 content hash of the canonical serialization (git tree object format: mode space name null oid, sorted by name with trailing '/' for directories). Identical to a git SHA-256 tree OID. |
+| entries | array of TreeEntry | yes | Sorted by name. Directory names sort as if they have a trailing '/'. |
 
 ## Entity relationships
 
@@ -182,16 +184,27 @@ Verdict
               ┌───────────┐    falsification      ┌──────────┐
    (default)  │unevaluated│ ──────────────────▶   │falsified │
               └───────────┘    supersession       └──────────┘
-                    │                                   ▲
-          verification                                │
-                    ▼                                  │
-              ┌───────────┐    falsification          │
-              │  passed   │ ──────────────────────▶  │
-              └───────────┐    supersession          │
-                                                  │
+                    │ ▲                               ▲ │
+          verification │ falsification                 │ │
+                    ▼ │ of verification                │ │
+              ┌───────────┐    falsification          │ │
+              │  passed   │ ──────────────────────▶  │ │
+              └───────────┘    supersession           │ │
+                    │ ▲                               │ │
+    falsification   │ │ falsification                 │ │
+    of verification │ │ of falsification              │ │
+                    ▼ │                               ▼ │
+              ┌───────────┐                      ┌──────────┐
+              │unevaluated│ ◀────────────────────│falsified │
+              └───────────┘  (revert to previous) └──────────┘
 ```
 
 Status is computed by folding the log, not stored. A claim's status at
 any point in time is a pure function of the claims that target it.
 Falsification and supersession both change the target's status to
-`falsified`; they differ in intent, not in status effect.
+`falsified`. If a verification record is itself falsified, the target
+reverts to `unevaluated` (no valid verification remains). If a
+falsification record is itself falsified, the target reverts to its
+previous status (the falsification is void). This recursive fold — a
+claim's status depends on the status of claims that target it — must
+be computed with cycle detection (INV-29).

@@ -16,11 +16,7 @@ ADR addresses it.
 Commit OIDs are derived from the claim log, not from wall-clock time
 or machine state. Specifically:
 
-1. **Tree OID.** The content address of the tree state, computed
-   as a SHA-256 hash of the canonical serialization (sorted entries,
-   mode, path, blob OID). This is identical to a git SHA-256 tree OID —
-   the projection is a passthrough for trees and blobs. Only commits
-   are synthesized.
+1. **Tree OID.** The content address of the tree state. elench trees are hierarchical (each directory is a separate tree object) and serialized exactly like git tree objects (mode space name null oid, sorted by name with trailing '/' for directories). The elench tree OID IS the git tree OID — a true passthrough, no re-hashing.
 2. **Commit OID.** Computed from (tree OID, parent commit OIDs,
    author, committer, message, timestamps) — all derived from the
    claim log, not the machine.

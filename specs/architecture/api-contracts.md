@@ -68,6 +68,7 @@ pub struct Claim {
     pub assertion: Assertion,
     pub origin: Origin,
     pub anchor: Anchor,
+    pub timestamp: i64,
     pub evidence: Vec<Evidence>,
     pub depends_on: Vec<ClaimId>,
 }
@@ -90,9 +91,27 @@ pub fn compute_status(claim_id: &ClaimId, log: &[Claim]) -> ClaimStatus;
 /// Compute the transitive dependsOn closure (blast radius).
 pub fn blast_radius(claim_id: &ClaimId, log: &[Claim]) -> Vec<ClaimId>;
 
+/// Identity of the key that signed the DSSE envelope, with its known entity type.
+/// The validator cross-checks this against claim.origin.kind to prevent forgery.
+pub struct SignerIdentity {
+    pub key_id: String,
+    pub entity: SignerEntity,
+}
+
+pub enum SignerEntity {
+    Harness,
+    Agent,
+    Human,
+}
+
 /// Validate a claim against emission rules (AGENTS.md).
-/// INV-06, INV-07, INV-08, INV-12: reject violations.
-pub fn validate_claim(claim: &Claim) -> Result<(), ValidationError>;
+/// INV-05: origin.kind required.
+/// INV-06: reject if signer is agent but origin.kind = harness-observed.
+/// INV-07: reject if signer is not harness but kind = verification.
+/// INV-08: reject form=predicate without expression.
+/// INV-11: reject falsification that changes no status (requires log).
+/// INV-12: reject if signer is not human but kind = residue-acceptance.
+pub fn validate_claim(claim: &Claim, signer: &SignerIdentity, log: &[Claim]) -> Result<(), ValidationError>;
 ```
 
 ## elench-envelope
@@ -125,14 +144,22 @@ pub struct Blob {
     pub data: Vec<u8>,
 }
 
-/// A tree entry: path + mode + blob OID.
+/// A tree entry: name + mode + OID, exactly like git.
 pub struct TreeEntry {
-    pub path: String,
+    pub name: String,
     pub mode: u32,
-    pub blob: Oid,
+    pub oid: Oid,
+    pub kind: TreeEntryKind,
 }
 
-/// A tree: sorted entries, content-addressed.
+pub enum TreeEntryKind {
+    Blob,
+    Tree,
+}
+
+/// A tree: sorted entries, content-addressed. Hierarchical — each
+/// directory is a separate tree object. Serialization matches git's
+/// tree object format, making OIDs identical.
 pub struct Tree {
     pub oid: Oid,
     pub entries: Vec<TreeEntry>,

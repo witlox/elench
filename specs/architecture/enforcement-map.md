@@ -15,18 +15,20 @@ where enforcement WILL live once the validator is built (ADR-0006).
 | INV-02: Prior status visible | `elench-claim::compute_status` — fold reads all records | UNIMPLEMENTED |
 | INV-03: Claim identity stable | `elench-claim::ClaimId` — content address, immutable | UNIMPLEMENTED |
 | INV-04: Status computed, not stored | `elench-claim::compute_status` — pure function | UNIMPLEMENTED |
+| INV-28: Claim OID is content hash | `elench-claim` — OID computation, verified on read | UNIMPLEMENTED |
+| INV-29: dependsOn acyclic | `elench-claim::validate_claim` — cycle detection over log | UNIMPLEMENTED |
 
 ## Origin typing (R2, AGENTS.md)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
 | INV-05: origin.kind required | `elench-claim::validate_claim` — schema validation | UNIMPLEMENTED |
-| INV-06: No harness-observed from agents | `elench-claim::validate_claim` — reject if producer is agent and origin.kind = harness-observed | UNIMPLEMENTED |
-| INV-07: Only harness emits verification | `elench-claim::validate_claim` — reject kind=verification from non-harness | UNIMPLEMENTED |
+| INV-06: No harness-observed from agents | `elench-claim::validate_claim` — cross-checks signer.entity against origin.kind | UNIMPLEMENTED |
+| INV-07: Only harness emits verification | `elench-claim::validate_claim` — cross-checks signer.entity against kind | UNIMPLEMENTED |
 | INV-08: Predicate requires expression | `elench-claim::validate_claim` — reject form=predicate without expression | UNIMPLEMENTED |
 | INV-09: Annotations never read by policy | `elench-gate::evaluate` — filter on form before evaluating | UNIMPLEMENTED |
-| INV-11: Failure recorded only when status changed | `elench-claim` — emission rule, checked by validator | UNIMPLEMENTED |
-| INV-12: No residue-acceptance from agents | `elench-claim::validate_claim` — reject kind=residue-acceptance from non-human | UNIMPLEMENTED |
+| INV-11: Failure recorded only when status changed | `elench-claim::validate_claim` — checks target status in log before accepting falsification | UNIMPLEMENTED |
+| INV-12: No residue-acceptance from agents | `elench-claim::validate_claim` — cross-checks signer.entity against kind | UNIMPLEMENTED |
 
 ## Gate and release (R3, R4)
 

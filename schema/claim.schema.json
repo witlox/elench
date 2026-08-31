@@ -5,7 +5,7 @@
   "description": "Carried as the `predicate` of an in-toto Statement inside a DSSE envelope. The envelope supplies signer identity; this schema supplies producer identity, which is a different thing (R2). Status is NOT stored here — it is computed by folding the claim log. A `falsification` record is itself a claim with kind=falsification referencing a target.",
 
   "type": "object",
-  "required": ["id", "kind", "assertion", "origin", "anchor"],
+  "required": ["id", "kind", "assertion", "origin", "anchor", "timestamp"],
   "additionalProperties": false,
 
   "properties": {
@@ -91,6 +91,11 @@
       }
     },
 
+    "timestamp": {
+      "type": "integer",
+      "description": "Unix epoch seconds. Set by the producer at emission time. Used by ADR-0007 for deterministic git commit synthesis — NOT the wall clock at projection time. Two parties projecting the same claim get the same commit timestamp."
+    },
+
     "evidence": {
       "type": "array",
       "description": "Empty for agent-asserted claims by default; that emptiness is the signal, not a gap to fill. A human-asserted claim with no evidence is authority without evidence, which is a legitimate and distinguishable state.",
@@ -111,5 +116,19 @@
       "items": { "type": "string", "pattern": "^cl_[0-9a-f]{64}$" },
       "description": "Premises. The transitive closure over this field IS the blast radius when something upstream is falsified. This field is the reason the project exists; if it is left empty in practice, revocation cannot propagate and the whole design collapses to per-claim status flags."
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "assertion" } } },
+      "then": { "properties": { "target": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "kind": { "not": { "const": "assertion" } } } },
+      "then": { "required": ["target"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "residue-acceptance" } } },
+      "then": { "properties": { "target": { "minItems": 1 } } }
+    }
+  ]
 }

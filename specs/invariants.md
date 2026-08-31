@@ -127,3 +127,7 @@ for evaluation.
 origin.kind, and blast radius are NOT recoverable from git objects. The
 git projection MUST NOT be the authoritative source for any property
 the claim log computes.
+
+**INV-28.** A claim's OID MUST equal the SHA-256 hash of its canonical JSON serialization (all fields except `id` itself). Two claims with identical content (assertion, origin, anchor, evidence, dependsOn, timestamp) get the same OID — this is deduplication, and it is correct: two agents independently asserting the same predicate about the same span produce one claim, not two. Two claims with different content get different OIDs.
+
+**INV-29.** `dependsOn` MUST be acyclic. A claim MUST NOT list itself, directly or transitively, in `dependsOn`. The validator rejects cyclic `dependsOn`; `blast_radius` and `compute_status` detect cycles and return an error rather than looping.

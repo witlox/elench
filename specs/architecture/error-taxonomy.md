@@ -29,6 +29,9 @@ pub enum ValidationError {
     #[error("dependsOn is empty — claim asserts it was reached from nothing (warning)")]
     EmptyDependsOn,                              // GUIDELINE (was INV-10, downgraded)
 
+    #[error("cyclic dependency detected: {0}")]
+    CyclicDependency(String),                    // INV-29
+
     #[error("schema validation failed: {0}")]
     SchemaViolation(String),                     // general
 }

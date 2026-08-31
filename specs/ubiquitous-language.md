@@ -19,6 +19,8 @@ history (ADR-0001). No record is ever overwritten; status is computed
 by folding the log, never stored. The git projection is derived from
 the claim log, not the other way around.
 
+**timestamp** — Unix epoch seconds, set by the producer at emission time. Used by ADR-0007 for deterministic git commit synthesis. NOT the wall clock at projection time — two parties projecting the same claim get the same commit timestamp.
+
 **status** — a claim's current standing, computed from the log: `passed`,
 `falsified`, `unevaluated`. NOT a stored field. A claim with no
 falsification or verification record against it is `unevaluated` by
@@ -43,11 +45,7 @@ visible. This is the mechanism that makes retroactive invalidation work.
 emits these. An agent believing something passed is an assertion, not a
 verification.
 
-**supersession** — a claim with `kind = supersession` targeting an
-earlier claim. The earlier claim is not falsified but is replaced. A
-supersession claim changes the target's computed status to `falsified`
-— same status effect as falsification, different intent. Supersession is
-a claim kind, not a status value.
+**supersession** — a claim with `kind = supersession` targeting an earlier claim. The earlier claim is replaced. A supersession claim changes the target's computed status to `falsified` — the same status effect as falsification. The difference is intent: supersession replaces a claim that is no longer the best answer; falsification refutes a claim that was wrong. Both result in `falsified` status.
 
 **residue-acceptance** — a claim with `kind = residue-acceptance`. A
 human key signing over named unevaluated gaps. The terminator, made
@@ -139,7 +137,12 @@ derivable from the store by a client-side binary. Blobs and trees are
 addressed by SHA-256 content hash (64 hex chars, no prefix), identical
 to git SHA-256 blob/tree OIDs. Claims are addressed with a `cl_`
 prefix. The git projection is a passthrough for blobs and trees; only
-commits are synthesized.
+commits are synthesized. Trees are hierarchical — each directory is a
+separate tree object, exactly like git. Tree serialization matches
+git's tree object format (mode space name null oid, sorted with
+trailing '/' for directories). This makes elench tree OIDs identical
+to git SHA-256 tree OIDs; the projection is a true passthrough for
+trees and blobs.
 
 **git projection** — a deterministic, read-only synthesis of git objects
 from the claim log (ADR-0002). `git log`, `git blame`, `git checkout`
