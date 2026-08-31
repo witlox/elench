@@ -36,7 +36,7 @@ Three tiers, cascading. Each higher tier includes the lower.
 |------|---------|------|------|
 | 1 (fast) | `make test` | `cargo test --lib` | Between every edit; pre-commit |
 | 2 (slow) | `make test-slow` | Tier 1 + all targets including ignored | Pre-PR |
-| 3 (full) | `make test-full` | Tier 2 + e2e against real git repos | Pre-merge / nightly |
+| 3 (full) | `make test-full` | Tier 2 + e2e against real repositories | Pre-merge / nightly |
 
 `make` (no target) = fmt-check + lint + Tier 1. Run it before every
 commit. If it fails, do not commit.
@@ -61,11 +61,11 @@ See `AGENTS.md` for full role dispatch and escalation paths.
 
 ## Harness contract
 
-Agents working on this repository emit claims into `refs/claims/`
-following the rules in `AGENTS.md` §Harness contract. The key
-asymmetry: the harness emits what it observed; the agent emits only
-what nothing else can observe. Until a validator exists (ADR-0006),
-these rules are unevaluated, not passed.
+Agents working on this repository emit claims following the rules in
+`AGENTS.md` §Harness contract. The key asymmetry: the harness emits
+what it observed; the agent emits only what nothing else can observe.
+Until a validator exists (ADR-0006), these rules are unevaluated, not
+passed.
 
 ## Experiments
 
@@ -92,5 +92,4 @@ See `experiments/` for pre-registered thresholds.
 
 ## License
 
-Contributions are dual-licensed under [MIT](LICENSE-MIT) or
-[Apache-2.0](LICENSE-APACHE), at your option.
+Contributions are licensed under the [MIT License](LICENSE-MIT).

@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Git ref namespace operations for the claim log"
+description = "Content-addressed store: the elench substrate (blobs, trees, claims)"
 
 [dependencies]
 thiserror = "2"

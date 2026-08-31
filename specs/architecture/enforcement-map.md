@@ -11,7 +11,7 @@ where enforcement WILL live once the validator is built (ADR-0006).
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-01: Append, not modify | `elench-store::store` — only writes, never updates | UNIMPLEMENTED |
+| INV-01: Append, not modify | `elench-store::store_claim` — only writes, never updates | UNIMPLEMENTED |
 | INV-02: Prior status visible | `elench-claim::compute_status` — fold reads all records | UNIMPLEMENTED |
 | INV-03: Claim identity stable | `elench-claim::ClaimId` — content address, immutable | UNIMPLEMENTED |
 | INV-04: Status computed, not stored | `elench-claim::compute_status` — pure function | UNIMPLEMENTED |
@@ -35,7 +35,7 @@ where enforcement WILL live once the validator is built (ADR-0006).
 |-----|-------------------|--------|
 | INV-13: Gate without build | `elench-gate::evaluate` — no build calls in evaluation path | UNIMPLEMENTED |
 | INV-14: Live evaluation | `elench-gate::evaluate` — called on demand, no cached verdict | UNIMPLEMENTED |
-| INV-15: Artifact carries (tree, policy) | `elench` CLI — artifact format includes pointer, not verdict | UNIMPLEMENTED |
+| INV-15: Artifact carries (tree, policy) | `elench` CLI — artifact format includes elench tree OID, not verdict | UNIMPLEMENTED |
 
 ## Unevaluated (R5)
 
@@ -44,28 +44,29 @@ where enforcement WILL live once the validator is built (ADR-0006).
 | INV-16: unevaluated first-class | `elench-claim::ClaimStatus::Unevaluated` | UNIMPLEMENTED |
 | INV-17: Bounded residue with acceptance | `elench-gate::evaluate` — condition 2 of release policy | UNIMPLEMENTED |
 
-## Git compatibility (R6, ADR-0001, ADR-0002)
+## Substrate and projection (R6, ADR-0001, ADR-0002, ADR-0007)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-18: Git tooling unmodified | `elench-store` — only writes to refs/claims/, never to tree | UNIMPLEMENTED |
-| INV-19: Parallel ref namespace | `elench-store` — all writes go to refs/claims/ | UNIMPLEMENTED |
-| INV-20: No synthesised commits | `elench-store` — no commit creation from claims | UNIMPLEMENTED |
+| INV-18: elench owns content-addressed store | `elench-store` — no git dependency, owns storage | UNIMPLEMENTED |
+| INV-19: Git projection is read-only | `elench` binary (git projection) — no write path to store | UNIMPLEMENTED |
+| INV-20: Git synthesis deterministic | `elench` binary (git projection) — ADR-0007, tested by two-machine synthesis | UNIMPLEMENTED |
+| INV-21: Git projection no side effects | `elench` binary (git projection) — reads only, generates objects | UNIMPLEMENTED |
 
 ## Supply-chain composability (R7, ADR-0003)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-21: DSSE/in-toto shared format | `elench-envelope::sign` / `verify` | UNIMPLEMENTED |
+| INV-22: DSSE/in-toto shared format | `elench-envelope::sign` / `verify` | UNIMPLEMENTED |
 
 ## Predicate language (ADR-0004)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-22: Expressions executable/deterministic/sandboxable | `elench-predicate` (not yet created) — gated by E0 | UNIMPLEMENTED |
+| INV-23: Expressions executable/deterministic/sandboxable | `elench-predicate` (not yet created) — gated by E0 | UNIMPLEMENTED |
 
 ## Validator (ADR-0006)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-23: AGENTS.md rules enforced | `elench-claim::validate_claim` — first milestone | UNIMPLEMENTED |
+| INV-24: AGENTS.md rules enforced | `elench-claim::validate_claim` — first milestone | UNIMPLEMENTED |

@@ -8,11 +8,12 @@ traces to a constraint.
 
 | Context | Responsibility | Key entity |
 |---------|---------------|------------|
-| Claim Emission | Create, sign, and store claims in refs/ | Claim |
+| Claim Emission | Create, sign, and store claims in the store | Claim |
 | Claim Evaluation | Compute status by folding the log | ClaimStatus |
 | Anchor Resolution | Resolve anchors to code spans within a tree | Anchor |
 | Release Gating | Evaluate release policy against claims | Verdict |
 | Predicate Evaluation | Execute predicate expressions (GATED by E0) | Expression |
+| Git Projection | Synthesize git objects from the claim log | GitCommit |
 
 ## Aggregates
 
@@ -29,19 +30,33 @@ changes.
 | `target` | array of claim ids | no | Claims this record acts upon |
 | `assertion` | object | yes | Contains `form` (predicate/annotation), optional `expression`, optional `text` |
 | `origin` | object | yes | Contains `kind` and `producer` |
-| `anchor` | object | yes | Contains `tree` and `strategy` |
+| `anchor` | object | yes | Contains `tree` (elench OID) and `strategy` |
 | `evidence` | array | no | Empty for agent-asserted claims by default |
 | `dependsOn` | array of claim ids | no | Premises. Transitive closure IS the blast radius. |
 
 ### Claim Log (root)
 
-The append-only set of claims stored in `refs/claims/<type>/<id>`. No
-aggregate owns individual claims; the log is the aggregate that
+The append-only set of claims that IS the primary history (ADR-0001).
+No aggregate owns individual claims; the log is the aggregate that
 collects them. Status is computed by folding, never stored.
 
 - Append-only. No record is ever modified or deleted.
-- Replicated by git transport alongside the code.
-- Invisible to tooling that does not know about it (R6).
+- The git projection is derived from the claim log, not the other way
+  around (ADR-0002).
+- No daemon. Everything is derivable from the store by a client-side
+  binary.
+
+### elench Store (root)
+
+The content-addressed substrate (ADR-0001). Holds blobs, trees, and
+claims. There is no separate git repository.
+
+- Content-addressed: blobs by content hash, trees by content hash,
+  claims by content hash.
+- The store IS the history. There is no parallel ref namespace, no
+  sidecar database.
+- The git projection reads from the store and synthesizes git objects
+  on demand (ADR-0002).
 
 ## Value objects
 
@@ -64,7 +79,7 @@ collects them. Status is computed by folding, never stored.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `tree` | string (commit OID) | yes | Commit the anchor was resolved against. |
+| `tree` | string (elench tree OID) | yes | Content address of the tree state in the store. NOT a git commit OID. |
 | `strategy` | enum: path-range, symbol, content-digest, multi | yes | UNRESOLVED — E1 decides. |
 | `path` | string | no | For path-range strategy. |
 | `range` | [int, int] | no | For path-range strategy. |
@@ -97,8 +112,23 @@ given tree. Not stored — computed at evaluation time.
 |-------|------|-------|
 | `result` | enum: pass, fail | |
 | `reasons` | array of strings | Which conditions failed and why. |
-| `tree` | string | The tree evaluated. |
+| `tree` | string | The elench tree OID evaluated. |
 | `policy` | string | The policy evaluated against. |
+
+### GitCommit (projection, not stored)
+
+A git commit object synthesized from the claim log by the git
+projection (ADR-0002, ADR-0007). Not stored in the elench store —
+generated on demand.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `oid` | string | Deterministic function of (tree, parents, author, committer, message, timestamps). |
+| `tree` | string | elench tree OID, mapped to a git tree OID. |
+| `parents` | array of git commit OIDs | Derived from the claim log. |
+| `author` | string | Derived from the claim's `producer.id`. |
+| `committer` | string | Same as author (no separate committer). |
+| `message` | string | Derived from an annotation claim, if present. |
 
 ## Entity relationships
 
@@ -109,8 +139,12 @@ Claim
  ├── 1..* ──→ Evidence
  └── 1    ──→ Anchor
 
-Claim Log
- └── 0..* ──→ Claim
+elench Store
+ ├── 0..* ──→ Claim
+ └── 0..* ──→ Tree (content-addressed)
+
+GitCommit
+ └── projected from ──→ Claim Log + elench Store
 
 Verdict
  └── computed from ──→ Claim Log + Release Policy

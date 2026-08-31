@@ -5,7 +5,7 @@ crate maps to one or more bounded contexts. Dependencies are acyclic.
 
 ```
                     ┌─────────────┐
-                    │   elench    │  (binary: CLI)
+                    │   elench    │  (binary: CLI + git projection)
                     │  (crates/   │
                     │   elench)   │
                     └──────┬──────┘
@@ -26,10 +26,10 @@ crate maps to one or more bounded contexts. Dependencies are acyclic.
 
 | Crate | Path | Bounded context | Role |
 |-------|------|-----------------|------|
-| `elench` | `crates/elench` | CLI | Binary. Reads/writes refs, verifies envelopes, evaluates predicates, computes closures. |
+| `elench` | `crates/elench` | CLI, Git Projection | Binary. Reads/writes store, verifies envelopes, evaluates predicates, computes closures, synthesizes git projection. |
 | `elench-claim` | `crates/elench-claim` | Claim Emission, Claim Evaluation | Data model matching `schema/claim.schema.json`, log-folding status computation, emission-rule validation. |
 | `elench-envelope` | `crates/elench-envelope` | Envelope Verification | DSSE envelope signing/verification, in-toto statement handling, signer/producer distinction. |
-| `elench-store` | `crates/elench-store` | Claim Store | Git ref namespace operations (`refs/claims/<type>/<id>`), object manipulation. |
+| `elench-store` | `crates/elench-store` | elench Store | Content-addressed store: blobs, trees, claims. The substrate (ADR-0001). No git, no daemon. |
 | `elench-gate` | `crates/elench-gate` | Release Gating | Release policy evaluation: four conditions from `docs/release-policy.md`. |
 
 ## Dependencies
@@ -38,13 +38,16 @@ crate maps to one or more bounded contexts. Dependencies are acyclic.
 |------|----|-----|
 | `elench` | `elench-claim` | Claim data model |
 | `elench` | `elench-envelope` | Envelope signing/verification |
-| `elench` | `elench-store` | Git ref operations |
+| `elench` | `elench-store` | Content-addressed storage |
 | `elench` | `elench-gate` | Release gate evaluation |
 | `elench-gate` | `elench-claim` | Status computation (log fold) |
 
 No cycles. `elench-claim` is the leaf — it depends on nothing in the
 workspace. `elench-gate` depends on `elench-claim`. The binary depends
-on all four library crates.
+on all four library crates. The git projection lives in the binary
+(`elench`) because it is a synthesis of objects from the store and the
+claim log — it has no separate crate because it is not reusable
+infrastructure, it is the compatibility layer.
 
 ## Not yet created
 

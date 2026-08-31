@@ -1,12 +1,18 @@
 //! # elench
 //!
-//! An evidence layer for repositories worked on by agents.
+//! An evidence layer for repositories — and the substrate that
+//! replaces git (ADR-0001).
 //!
 //! elench records what was checked, to what depth, and what remains
-//! unevaluated — as a durable claim log stored alongside the code in a
-//! parallel git ref namespace. Claims are signed, append-only, and
-//! revocable. An artifact's acceptability is a live evaluation against
-//! the current claim log, not a signature frozen at release time.
+//! unevaluated — as a durable claim log stored in a content-addressed
+//! store. Claims are signed, append-only, and revocable. An artifact's
+//! acceptability is a live evaluation against the current claim log,
+//! not a signature frozen at release time.
+//!
+//! The git CLI works because elench synthesizes git-compatible objects
+//! from the claim log (ADR-0002, ADR-0007). The projection is
+//! read-only and deterministic (BC4). Humans use git; elench is
+//! invisible.
 //!
 //! ## Status
 //!

@@ -13,10 +13,10 @@ passed.
 | Mode | Greenfield (no source code; spec scaffold built) |
 | Phase | Pre-implementation — E0 not yet run |
 | Language | Rust (edition 2024, MSRV 1.85) |
-| License | MIT OR Apache-2.0 |
+| License | MIT |
 | Crate count | 5 (elench, elench-claim, elench-envelope, elench-store, elench-gate) |
-| Spec count | 6 feature files, 23 invariants, 7 assumptions, 8 failure modes |
-| ADR count | 7 (0000–0006, all proposed except 0006 accepted-as-debt) |
+| Spec count | 7 feature files, 24 invariants, 15 assumptions, 9 failure modes |
+| ADR count | 8 (0000–0007, all proposed except 0006 accepted-as-debt) |
 | Experiment count | 3 (E0 not run, E1 not run, E2 not run) |
 | Fidelity | All invariants NONE. First milestone: validator (ADR-0006). |
 
@@ -185,4 +185,4 @@ make clean        # cargo clean
 5. `docs/release-policy.md` — the gate shape
 6. `specs/` — ubiquitous language, domain model, invariants, features,
    failure modes, assumptions, fidelity, cross-context, architecture
-7. `specs/architecture/adr/` — ADR log (0000–0006)
+7. `specs/architecture/adr/` — ADR log (0000–0007)

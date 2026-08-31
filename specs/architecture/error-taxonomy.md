@@ -67,14 +67,17 @@ pub enum EnvelopeError {
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("ref already exists: {0}")]
-    RefExists(String),                           // INV-01 (append-only)
+    #[error("object already exists: {0}")]
+    ObjectExists(String),                        // INV-01 (append-only)
 
-    #[error("git operation failed: {0}")]
-    GitOperation(String),
+    #[error("object not found: {0}")]
+    ObjectNotFound(String),
 
-    #[error("repository not found: {0}")]
-    RepositoryNotFound(String),
+    #[error("store is corrupt: {0}")]
+    CorruptStore(String),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 ```
 
@@ -100,16 +103,32 @@ pub enum GateError {
 }
 ```
 
+## elench (binary — git projection)
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectionError {
+    #[error("non-deterministic synthesis: {0} differs between runs")]
+    NonDeterministicSynthesis(String),           // INV-20, BC4
+
+    #[error("write-through-git is not supported; use `elench emit`")]
+    WriteThroughGit,                             // INV-19, FM-P3-03
+
+    #[error("tree {0} has no tree-changing claims; nothing to project")]
+    NoTreeChangingClaims(String),
+}
+```
+
 ## Error handling principles
 
 1. **Fail closed.** If the gate cannot evaluate, the verdict is `fail`,
    not `pass`. An unevaluated claim is NOT a passing claim.
 
-2. **No silent corruption.** A corrupt log yields `StatusError::CorruptLog`
+2. **No silent corruption.** A corrupt store yields `StoreError::CorruptStore`
    and marks all unreadable claims as `unevaluated`. It does not guess.
 
 3. **Append-only is a store invariant, not a recovery mechanism.**
-   `StoreError::RefExists` prevents overwriting; it does not provide
+   `StoreError::ObjectExists` prevents overwriting; it does not provide
    conflict resolution.
 
 4. **Agent emission errors are rejection, not retry.** The validator
@@ -119,3 +138,8 @@ pub enum GateError {
 5. **Builder agreement unavailability is explicit.** The gate reports
    it as a named condition failure, not a silent degradation to single
    signature.
+
+6. **Projection errors are loud.** Non-deterministic synthesis
+   (ProjectionError::NonDeterministicSynthesis) is a P1 failure that
+   breaks R6. Write-through-git is an explicit rejection, not a
+   silent no-op.

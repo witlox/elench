@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Claim data model, status computation, and validation"
+description = "Claim data model, status computation, and emission-rule validation"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

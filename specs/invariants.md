@@ -55,15 +55,15 @@ unevaluated gaps (R5).
 ## Gate and release (R3, R4)
 
 **INV-13.** The release gate can be evaluated without build capability.
-A party with only the git refs and no compute must reach the same
+A party with only the claim log and no compute must reach the same
 verdict as a party with a build farm.
 
 **INV-14.** An artifact's acceptability is a live evaluation against the
 current claim log, not a signature frozen at release time.
 
 **INV-15.** An artifact carries a pointer to `(tree, policy)`, not a
-verdict. Consumers re-evaluate. Git tags cannot express this; they are
-not used for release status.
+verdict. Consumers re-evaluate. The tree is an elench tree OID
+(ADR-0001), not a git commit.
 
 ## Unevaluated (R5)
 
@@ -75,32 +75,38 @@ about brownfield code.
 residue, with each excess covered by a `residue-acceptance` record
 signed by a key the policy names.
 
-## Git compatibility (R6, ADR-0001, ADR-0002)
+## Substrate and projection (R6, ADR-0001, ADR-0002, ADR-0007)
 
-**INV-18.** `git log`, `git blame`, IDEs, and existing forges work with
-no changes and no awareness of the claim layer.
+**INV-18.** elench owns its own content-addressed store. The claim log
+IS the primary history. There is no separate git repository underneath.
 
-**INV-19.** Claims live in `refs/claims/<type>/<id>`, a parallel ref
-namespace. No claim content appears in the working tree.
+**INV-19.** The git projection is a read-only synthesis of git objects
+from the claim log. Writes go through elench, never through git.
 
-**INV-20.** No git commits are synthesised from the claim log. Git
-remains the primary write interface for code; claims sit beside it.
+**INV-20.** Git object synthesis is deterministic. Two parties with the
+same claim log produce byte-identical git objects (BC4). Commit OIDs
+are derived from the claim log, not from wall-clock time or machine
+state.
+
+**INV-21.** The git projection produces no side effects. It reads from
+the store and generates objects on demand. It does not modify the
+store, the claim log, or the working tree.
 
 ## Supply-chain composability (R7, ADR-0003)
 
-**INV-21.** Agent claims and build provenance share the same DSSE/in-toto
+**INV-22.** Agent claims and build provenance share the same DSSE/in-toto
 envelope format. Same signing path, same store, same verification
 library.
 
 ## Predicate language (ADR-0004)
 
-**INV-22.** Predicate expressions must be executable, deterministic, and
+**INV-23.** Predicate expressions must be executable, deterministic, and
 sandboxable. The language is undecided (gated by E0); until decided,
 `expression.language` is a free string and no validator bakes in an
 answer.
 
 ## Validator (ADR-0006)
 
-**INV-23.** The AGENTS.md emission rules MUST be enforced by a
+**INV-24.** The AGENTS.md emission rules MUST be enforced by a
 validator. Until implemented, they are `unevaluated`, not `passed`.
 The first implementation milestone is the validator, not the CLI.

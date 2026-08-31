@@ -29,7 +29,9 @@ one. It is unavailable unless E2 passes.
 The artifact carries a pointer to `(T, P)`, not a verdict. Consumers
 re-evaluate. If a load-bearing claim is falsified after release, the artifact's
 status changes with no byte moving and no re-signing — the property from
-README that justifies the project.
+README that justifies the project. `T` is an elench tree OID
+(ADR-0001), not a git commit. The git projection (ADR-0002) is not
+consulted at evaluation time.
 
 This is certificate-revocation shaped and inherits its problems: consumers who
 never re-check are unprotected, and there is no push path. Do not pretend

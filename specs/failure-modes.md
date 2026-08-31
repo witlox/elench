@@ -72,6 +72,23 @@ remains visible, status is computed not stored.
 **Recovery:** Unknown. May require a separate compaction mechanism
 that respects append-only semantics.
 
+### FM-P1-03: Non-deterministic git projection
+
+Two parties with the same claim log produce different git objects.
+`git log` disagrees. R6 fails.
+
+**Gated by:** BC4, ADR-0007
+**Threshold:** Git object synthesis is deterministic by construction
+(`git hash-object`, `git commit-tree`, `git mktree` are deterministic).
+The risk is in the derivation mapping (which claim becomes which
+commit), not in git's object format.
+**Handling:** ADR-0007 specifies deterministic OID derivation,
+author/committer strings, timestamps, and tree ordering. Tested by
+synthesizing from the same claim log on two machines and comparing
+output.
+**Recovery:** If the derivation mapping is non-deterministic, fix the
+mapping. Git's object format is not the problem.
+
 ## P2 — Moderate, degrades quality
 
 ### FM-P2-01: Residue acceptance rubber stamp
@@ -101,9 +118,9 @@ contradiction as a new status.
 
 ### FM-P2-03: Reconciliation pass not triggered
 
-A commit lands that invalidates claims (moves code out from under
-anchors, changes semantics). Nothing forces the claim log to notice.
-The log and the tree drift apart silently.
+A tree change lands that invalidates claims (moves code out from under
+anchors). Nothing forces the claim log to notice. The log and the tree
+drift apart silently.
 
 **Gated by:** None (ADR-0002 consequence)
 **Handling:** A reconciliation pass is required and does not exist yet.
@@ -134,3 +151,16 @@ added badly under pressure.
 **Handling:** Flagged in docs/release-policy.md §Deliberately not
 specified. Not a design gap — a conscious deferral.
 **Recovery:** Specify when the need becomes concrete, not before.
+
+### FM-P3-03: Git write-through unsupported
+
+A user who runs `git commit` in a projected repository gets an error or
+a no-op. This is the price of making the claim log primary (ADR-0002).
+
+**Gated by:** R6 (write path goes through elench, never git)
+**Handling:** Documented. The git projection is read-only. Users who
+want to write must use `elench` (or a future write-back helper that
+converts git commits into elench claims).
+**Recovery:** A write-back helper is possible but not scoped. It would
+convert a git commit into one or more elench claims, losing any
+information git cannot represent.

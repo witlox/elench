@@ -22,15 +22,16 @@ should be written at all.
 | INV-12 | Agents cannot emit residue-acceptance | NONE | No validator yet (A-A05) |
 | INV-13 | Gate evaluable without build capability | NONE | No code |
 | INV-14 | Artifact acceptability is live evaluation | NONE | No code |
-| INV-15 | Artifact carries (tree, policy), not verdict | NONE | No code |
+| INV-15 | Artifact carries (tree, policy), not verdict | NONE | No code; tree is elench OID |
 | INV-16 | unevaluated is first-class status | NONE | No code |
 | INV-17 | Policies permit bounded unevaluated residue | NONE | No code |
-| INV-18 | Git tooling works unmodified | NONE | No code |
-| INV-19 | Claims in parallel ref namespace | NONE | No code |
-| INV-20 | No synthesised git commits | NONE | No code |
-| INV-21 | Agent claims and provenance share DSSE/in-toto | NONE | No code |
-| INV-22 | Predicate expressions executable/deterministic/sandboxable | NONE | Gated by E0/ADR-0004 |
-| INV-23 | AGENTS.md rules enforced by validator | NONE | First milestone (ADR-0006) |
+| INV-18 | elench owns content-addressed store | NONE | No code; ADR-0001 |
+| INV-19 | Git projection is read-only | NONE | No code; ADR-0002 |
+| INV-20 | Git synthesis is deterministic (BC4) | NONE | No code; ADR-0007 |
+| INV-21 | Git projection produces no side effects | NONE | No code |
+| INV-22 | Agent claims and provenance share DSSE/in-toto | NONE | No code |
+| INV-23 | Predicate expressions executable/deterministic/sandboxable | NONE | Gated by E0/ADR-0004 |
+| INV-24 | AGENTS.md rules enforced by validator | NONE | First milestone (ADR-0006) |
 
 ## Features
 
@@ -42,6 +43,7 @@ should be written at all.
 | release-gate | 6 | NONE | No code |
 | anchor-resolution | 5 | NONE | No code |
 | unevaluated-residue | 5 | NONE | No code |
+| git-projection | 4 | NONE | No code; ADR-0002/0007 |
 
 ## Experiments (research, not test depth)
 
@@ -53,7 +55,7 @@ should be written at all.
 
 ## First milestone
 
-The validator (INV-23, ADR-0006) is the first implementation target. A
+The validator (INV-24, ADR-0006) is the first implementation target. A
 claim log with unenforced emission rules is not evidence; it is
 testimony from the audited party in a structured format. All other
 implementation is gated by E0's result.

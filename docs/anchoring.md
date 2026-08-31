@@ -10,9 +10,14 @@ A claim points at code. Code moves. If the pointer rots, then:
 - `unevaluated` residue is miscounted in both directions;
 - the whole log degrades into per-file gossip.
 
-This is the same problem as making review comments survive a rebase, which
-forges have not solved well in twenty years. Assume it is hard. Do not assume
-a clever hash fixes it.
+This is the same problem as making review comments survive a rebase,
+which forges have not solved well in twenty years. Assume it is hard.
+Do not assume a clever hash fixes it.
+
+In elench, a "tree" is a content-addressed tree state in the store
+(ADR-0001), not a git commit. Anchors point at elench tree OIDs. The
+git projection (ADR-0002) is irrelevant to anchoring — anchors resolve
+in elench-native space.
 
 ## Candidates
 
@@ -22,7 +27,7 @@ Baseline for E1, not a proposal.
 **Symbol identity.** Language-server qualified name. Survives reformatting and
 line motion; dies on rename, and rename is the single most common refactor an
 agent performs. Requires a language server per language, which is a large
-dependency surface for a tool that otherwise needs only git.
+dependency surface for a tool that owns its own store.
 
 **Normalised content digest.** Digest of the anchored span after
 whitespace/comment normalisation. Survives motion and rename; dies on any
@@ -38,14 +43,12 @@ picking one. Costs more storage and introduces a fourth status
 
 ## Rejected
 
-- **Anchoring to the commit only, not to a span.** Removes the problem by
-  removing the capability. A claim scoped to a whole commit cannot support
+- **Anchoring to the tree only, not to a span.** Removes the problem by
+  removing the capability. A claim scoped to a whole tree cannot support
   blast-radius tracing, which is R1's reason to exist.
-- **Requiring agents to re-anchor on every commit.** Puts the audited party in
-  charge of whether its own claims still apply. Violates the AGENTS.md
-  asymmetry directly.
-- **Storing anchors as git notes.** Notes do not survive common workflows and
-  have poor merge behaviour. Wrong substrate.
+- **Requiring agents to re-anchor on every tree change.** Puts the audited
+  party in charge of whether its own claims still apply. Violates the
+  AGENTS.md asymmetry directly.
 
 ## Decision procedure
 

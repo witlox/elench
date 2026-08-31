@@ -9,16 +9,18 @@ precise meaning; using one loosely in a spec or in code is a defect.
 not a log line. Has a stable identity (`id`), a `kind`, an `assertion`,
 an `origin`, an `anchor`, optional `evidence`, and optional `dependsOn`.
 
-**tree** — a git commit OID that a claim is about. Not a working tree,
-not a branch — a specific commit. Claims are anchored to spans within
-a tree.
+**tree** — a content-addressed tree state in the elench store (ADR-0001).
+NOT a git commit. The git projection (ADR-0002) synthesizes git commits
+from tree states, but the tree is the elench-native concept. Claims are
+anchored to spans within a tree.
 
-**claim log** — the append-only set of claims stored in
-`refs/claims/<type>/<id>`. Replicated by git transport. No record is
-ever overwritten; status is computed by folding the log, never stored.
+**claim log** — the append-only set of claims that IS the primary
+history (ADR-0001). No record is ever overwritten; status is computed
+by folding the log, never stored. The git projection is derived from
+the claim log, not the other way around.
 
 **status** — a claim's current standing, computed from the log: `passed`,
-`failed`, or `unevaluated`. NOT a stored field. A claim with no
+`failed`, `unevaluated`. NOT a stored field. A claim with no
 falsification or verification record against it is `unevaluated` by
 default, not `passed`.
 
@@ -128,3 +130,15 @@ time. Bounded by policy; excess must be covered by a
 qualified name, dies on rename), `content-digest` (normalised digest,
 dies on any semantic edit), or `multi` (all three, resolve by
 agreement). UNRESOLVED — E1 determines which survives.
+
+## Substrate and projection
+
+**elench store** — the content-addressed store that IS the substrate
+(ADR-0001). Holds blobs, trees, and claims. No daemon. Everything is
+derivable from the store by a client-side binary.
+
+**git projection** — a deterministic, read-only synthesis of git objects
+from the claim log (ADR-0002). `git log`, `git blame`, `git checkout`
+work because elench produces git-compatible objects. Writes go through
+elench, never through git. Two parties with the same claim log produce
+byte-identical git objects (BC4, ADR-0007).

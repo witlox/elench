@@ -31,7 +31,7 @@ Feature: Release gate is a predicate over claims
     Then the gate passes
 
   Scenario: Gate evaluates without build capability
-    Given a party with only the git refs and no compute
+    Given a party with only the claim log and no compute
     When the party evaluates the release gate for tree T under policy P
     Then the party reaches the same verdict as a party with a build farm
 

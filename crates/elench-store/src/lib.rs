@@ -1,8 +1,11 @@
 //! # elench-store
 //!
-//! Git ref namespace operations for the claim log.
+//! Content-addressed store: the substrate (ADR-0001).
 //!
-//! Claims live in `refs/claims/<type>/<id>`, in the same object
-//! database as the code (ADR-0001). Fetched by whoever wants them,
-//! ignored by everyone else. No tree mutation, no synthesised commits,
-//! no daemon. Everything is derivable from refs by a client-side binary.
+//! elench owns its own storage — blobs, trees, and claims, all
+//! content-addressed. There is no git repository underneath, no
+//! parallel ref namespace, no daemon. The store IS the history.
+//!
+//! The git projection (ADR-0002) synthesizes git-compatible objects
+//! from the store on demand. It reads from this store and generates
+//! git objects; it never writes back.

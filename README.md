@@ -1,8 +1,8 @@
 # elench
 
-An evidence layer for repositories worked on by agents.
+An evidence layer for repositories — and the substrate that replaces git.
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 
 ## Status
 
@@ -23,15 +23,17 @@ review process samples it. When agents write the code at volume, there is no
 head to sample and review bandwidth does not scale. The record has to become
 durable state or it does not exist.
 
-elench proposes that durable state as a claim log: signed, append-only,
-revocable assertions about a tree, stored in a git ref namespace alongside the
-code and replicated by the same transport.
+elench is that durable state — and the substrate itself. The claim log is
+the primary history: a signed, append-only, revocable record of what was
+asserted, what was verified, and what remains unevaluated. The git CLI
+works because elench synthesizes git-compatible objects from the claim log
+on demand. Humans use git; elench is invisible.
 
 ## What this is not
 
-- **Not a git replacement.** Git is unmodified. Claims live in
-  `refs/claims/`, adjacent to code, the way Radicle's COBs live in
-  `refs/cobs/`. Human tooling is unaffected by design.
+- **Not a git sidecar.** elench is the substrate (ADR-0001). Git is a
+  read-only projection (ADR-0002), not the source of truth. There is no
+  separate git repository underneath.
 - **Not a CI system.** It defines what a build must emit, not how to build.
 - **Not a consensus mechanism.** Independent parties evaluate the same claim
   log against their own policy and may legitimately reach different verdicts.
@@ -54,10 +56,10 @@ elench is a Rust workspace of five crates, organized by bounded context:
 
 | Crate | Role |
 |-------|------|
-| [`elench`](crates/elench) | Binary. The CLI: emit, verify, status, gate, blast. |
+| [`elench`](crates/elench) | Binary. The CLI + git projection. Synthesizes git objects from the claim log (ADR-0002, ADR-0007). |
 | [`elench-claim`](crates/elench-claim) | Claim data model, log-folding status computation, emission-rule validation. |
 | [`elench-envelope`](crates/elench-envelope) | DSSE envelopes carrying in-toto statements. |
-| [`elench-store`](crates/elench-store) | Git ref namespace operations (`refs/claims/<type>/<id>`). |
+| [`elench-store`](crates/elench-store) | Content-addressed store: blobs, trees, claims. The substrate (ADR-0001). |
 | [`elench-gate`](crates/elench-gate) | Release gate evaluation — a predicate over claims, not a build. |
 
 See `specs/architecture/module-graph.md` for the dependency graph and
@@ -78,7 +80,7 @@ Requires Rust 1.85+ (edition 2024). See `CONTRIBUTING.md` for details.
 
 ## Reading order
 
-1. `docs/problem.md` — requirements (R1–R7), binding constraints (BC1–BC3)
+1. `docs/problem.md` — requirements (R1–R7), binding constraints (BC1–BC4)
 2. `experiments/E0-predicate-ratio.md` — the go/no-go measurement
 3. `schema/claim.schema.json` — draft data model
 4. `docs/anchoring.md` — the unsolved problem everything rests on
@@ -86,10 +88,9 @@ Requires Rust 1.85+ (edition 2024). See `CONTRIBUTING.md` for details.
 6. `AGENTS.md` — workflow router + harness contract
 7. `specs/` — ubiquitous language, domain model, invariants, features,
    failure modes, assumptions, fidelity, cross-context, architecture
-8. `specs/architecture/adr/` — ADR log (0000–0006, all proposed except 0006)
+8. `specs/architecture/adr/` — ADR log (0001–0007)
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
-at your option. Contributions intentionally submitted for inclusion
-must be under the same terms.
+Licensed under the [MIT License](LICENSE-MIT). Contributions
+intentionally submitted for inclusion must be under the same terms.

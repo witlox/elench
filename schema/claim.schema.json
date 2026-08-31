@@ -82,7 +82,7 @@
       "type": "object",
       "required": ["tree", "strategy"],
       "properties": {
-        "tree": { "type": "string", "description": "Commit OID the anchor was resolved against." },
+        "tree": { "type": "string", "description": "elench tree OID (content address of the tree state in the store, ADR-0001). Not a git commit OID." },
         "strategy": { "enum": ["path-range", "symbol", "content-digest", "multi"] },
         "path": { "type": "string" },
         "range": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },

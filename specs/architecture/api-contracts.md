@@ -100,24 +100,57 @@ pub fn validate_claim(claim: &Claim) -> Result<(), ValidationError>;
 pub fn sign(claim: &Claim, signing_key: &SigningKey) -> Envelope;
 
 /// Verify a DSSE envelope's signature and extract the claim.
-/// INV-21: same format as build provenance.
+/// INV-22: same format as build provenance.
 pub fn verify(envelope: &Envelope) -> Result<Claim, EnvelopeError>;
 ```
 
 ## elench-store
 
+### Types
+
+```rust
+/// Content address of a blob, tree, or claim.
+/// NOT a git OID. The store owns its own addressing.
+pub struct Oid(String);
+
+/// A tree entry: path + mode + blob OID.
+pub struct TreeEntry {
+    pub path: String,
+    pub mode: u32,
+    pub blob: Oid,
+}
+
+/// A tree: sorted entries, content-addressed.
+pub struct Tree {
+    pub entries: Vec<TreeEntry>,
+}
+```
+
 ### Functions
 
 ```rust
-/// Store a claim in refs/claims/<type>/<id>.
-/// INV-01, INV-19: append-only, parallel ref namespace.
-pub fn store(claim: &Claim, repo: &Repository) -> Result<(), StoreError>;
+/// Store a claim in the content-addressed store.
+/// INV-01: append-only, never updates.
+/// INV-18: elench owns the store, no git underneath.
+pub fn store_claim(claim: &Claim, store: &Store) -> Result<Oid, StoreError>;
 
-/// Read all claims from refs/claims/.
-pub fn read_all(repo: &Repository) -> Result<Vec<Claim>, StoreError>;
+/// Store a blob.
+pub fn store_blob(data: &[u8], store: &Store) -> Result<Oid, StoreError>;
 
-/// Read claims for a specific tree.
-pub fn read_for_tree(tree: &str, repo: &Repository) -> Result<Vec<Claim>, StoreError>;
+/// Store a tree.
+pub fn store_tree(tree: &Tree, store: &Store) -> Result<Oid, StoreError>;
+
+/// Read all claims from the store.
+pub fn read_all_claims(store: &Store) -> Result<Vec<Claim>, StoreError>;
+
+/// Read claims for a specific tree (by elench tree OID).
+pub fn read_claims_for_tree(tree: &Oid, store: &Store) -> Result<Vec<Claim>, StoreError>;
+
+/// Read a tree by OID.
+pub fn read_tree(tree: &Oid, store: &Store) -> Result<Tree, StoreError>;
+
+/// Read a blob by OID.
+pub fn read_blob(blob: &Oid, store: &Store) -> Result<Vec<u8>, StoreError>;
 ```
 
 ## elench-gate
@@ -128,8 +161,9 @@ pub fn read_for_tree(tree: &str, repo: &Repository) -> Result<Vec<Claim>, StoreE
 /// Evaluate the release gate for a tree under a policy.
 /// INV-13: evaluable without build capability.
 /// INV-14: live evaluation, not frozen.
+/// `tree` is an elench tree OID, not a git commit.
 pub fn evaluate(
-    tree: &str,
+    tree: &Oid,
     policy: &Policy,
     log: &[Claim],
 ) -> Result<Verdict, GateError>;
@@ -139,7 +173,7 @@ pub fn evaluate(
 pub struct Verdict {
     pub result: VerdictResult,
     pub reasons: Vec<String>,
-    pub tree: String,
+    pub tree: Oid,
     pub policy: String,
 }
 
@@ -154,8 +188,9 @@ pub enum VerdictResult {
 The CLI wires the libraries together. No public API — it is a binary.
 Commands (not yet implemented):
 
-- `elench emit` — create and sign a claim, store in refs/claims/
+- `elench emit` — create and sign a claim, store in the content-addressed store
 - `elench verify` — verify an envelope and validate the claim
 - `elench status` — compute a claim's status by folding the log
 - `elench gate` — evaluate the release gate for a tree
 - `elench blast` — compute the blast radius from a claim
+- `elench git` — materialize the git projection (ADR-0002, ADR-0007)

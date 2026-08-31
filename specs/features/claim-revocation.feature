@@ -9,7 +9,7 @@ Feature: Claim revocation without tree mutation
     Then the claim log contains two records: the original and the falsification
     And cl_a3f...'s computed status is now "falsified"
     And the original claim's content is byte-identical to before
-    And no commit was added to the main branch
+    And no tree state was added or modified
 
   Scenario: Blast radius propagates through dependsOn
     Given claims cl_a, cl_b, cl_c where cl_b dependsOn [cl_a] and cl_c dependsOn [cl_b]

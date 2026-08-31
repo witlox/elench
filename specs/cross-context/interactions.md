@@ -8,30 +8,32 @@ direction, a contract, and a failure mode.
 | Context | Owns | Consumes |
 |---------|------|----------|
 | Claim Emission | Claim creation, signing, storage | Envelope Verification (before accepting) |
-| Claim Evaluation | Status computation (log folding) | Claim Store (reads log) |
+| Claim Evaluation | Status computation (log folding) | elench Store (reads log) |
 | Anchor Resolution | Anchor → code span resolution | Claim Evaluation (for blast radius) |
 | Release Gating | Verdict computation | Claim Evaluation (uses status), Predicate Evaluation |
 | Predicate Evaluation | Expression execution | — (gated by E0/ADR-0004) |
+| Git Projection | Git object synthesis from claim log | elench Store (reads), Claim Log (reads) |
 
 ## Interactions
 
-### 1. Claim Emission → Claim Store
+### 1. Claim Emission → elench Store
 
 **Direction:** Write
 **Contract:** A signed DSSE envelope containing an in-toto statement
-whose predicate matches `schema/claim.schema.json` is written to
-`refs/claims/<type>/<id>`.
+whose predicate matches `schema/claim.schema.json` is written to the
+elench store (content-addressed). The store is the substrate; there is
+no parallel ref namespace (ADR-0001).
 **Failure:** Invalid envelope → rejected before write. Valid envelope,
 invalid claim → rejected by validator (once implemented, ADR-0006).
 **Status:** No code. Contract is `schema/claim.schema.json` (DRAFT).
 
-### 2. Claim Evaluation ← Claim Store
+### 2. Claim Evaluation ← elench Store
 
 **Direction:** Read
-**Contract:** The evaluator reads all claims in `refs/claims/` and
-folds them to compute each claim's status (unevaluated / passed /
+**Contract:** The evaluator reads all claims from the store and folds
+them to compute each claim's status (unevaluated / passed /
 falsified). The fold is a pure function of the log.
-**Failure:** Corrupt or missing ref → status is "unevaluated" for all
+**Failure:** Corrupt or missing data → status is "unevaluated" for all
 claims that cannot be read. Silent corruption → wrong status. (No
 reconciliation pass exists yet, A-A02.)
 **Status:** No code. Fold semantics are in `specs/domain-model.md`.
@@ -39,9 +41,10 @@ reconciliation pass exists yet, A-A02.)
 ### 3. Release Gating ← Claim Evaluation
 
 **Direction:** Read
-**Contract:** The gate receives a tree T and a policy P, queries
-Claim Evaluation for the status of all claims anchored to T, and
-evaluates the four conditions from `docs/release-policy.md`:
+**Contract:** The gate receives a tree (elench OID) and a policy P,
+queries Claim Evaluation for the status of all claims anchored to the
+tree, and evaluates the four conditions from
+`docs/release-policy.md`:
   1. No falsified premise in transitive dependsOn closure
   2. Bounded residue (unevaluated within P's allowance, excess covered
      by residue-acceptance)
@@ -56,9 +59,8 @@ verdict is not stored; it is recomputed on demand.
 **Direction:** Read (for blast radius), Write (anchor resolution result)
 **Contract:** When a claim is falsified, the blast radius is the
 transitive dependsOn closure. Each claim in the closure has an anchor
-that must be resolved to verify it still points at the intended code.
-If an anchor is degraded (multi-strategy disagreement), the blast
-radius report marks it.
+that must be resolved to verify it still points at the intended code
+within an elench tree.
 **Failure:** Wrong-resolution (anchor points at wrong code) → blast
 radius is fiction, falsification targets the wrong lines. This is
 FM-P0-01.
@@ -77,7 +79,20 @@ or flagged per policy. Valid signature, invalid claim → rejected by
 validator.
 **Status:** No code. Envelope format is in ADR-0003.
 
-### 6. Predicate Evaluation ← Release Gating
+### 6. Git Projection ← elench Store + Claim Log
+
+**Direction:** Read-only
+**Contract:** The git projection synthesizes git objects (commits,
+trees, blobs) from the claim log (ADR-0002). Synthesis is
+deterministic (BC4, ADR-0007): two parties with the same claim log
+produce byte-identical git objects. `git log`, `git blame`, `git
+checkout` work as if the repository were a git repo.
+**Failure:** Non-deterministic synthesis → two parties get different
+git objects, R6 fails (FM-P1-03). Write-through-git → rejected; the
+projection is read-only (FM-P3-03).
+**Status:** No code. Projection shape is in ADR-0002 and ADR-0007.
+
+### 7. Predicate Evaluation ← Release Gating
 
 **Direction:** Read
 **Contract:** The release gate is itself a predicate. If the predicate
@@ -92,15 +107,20 @@ violating R3.
 
 ## Open cross-context issues
 
-1. **Reconciliation pass** (Claim Store ↔ Claim Evaluation): A commit
-   lands that moves code out from under anchors. Nothing forces the
-   claim log to notice. A reconciliation pass is required and does not
-   exist yet (A-A02, FM-P2-03).
+1. **Reconciliation pass** (elench Store ↔ Claim Evaluation): A tree
+   change lands that moves code out from under anchors. Nothing forces
+   the claim log to notice. A reconciliation pass is required and does
+   not exist yet (A-A02, FM-P2-03).
 
-2. **Claim log convergence** (Claim Store): Does the log grow without
+2. **Claim log convergence** (elench Store): Does the log grow without
    bound on an active repository? No pruning story exists. Compaction
    may violate R1 (A-U01, FM-P1-02).
 
 3. **Contradictory predicates** (Predicate Evaluation ↔ Release Gating):
    Two agents assert contradictory predicates and neither is
    falsified. The tree's status is undefined (A-U03, FM-P2-02).
+
+4. **Git projection granularity** (Git Projection ↔ Claim Evaluation):
+   One commit per tree-changing claim (ADR-0007) may be too dense for
+   human consumption. A session-level aggregation view may be needed
+   (A-U08).

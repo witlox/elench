@@ -11,7 +11,7 @@ gated by E0.
 **Crate:** `elench-claim` (validation portion only)
 
 The validator enforces the AGENTS.md emission rules (INV-05 through
-INV-12, INV-23). A claim log with unenforced rules is testimony from
+INV-12, INV-24). A claim log with unenforced rules is testimony from
 the audited party in a structured format — not evidence.
 
 - Claim schema validation (against `schema/claim.schema.json`)
@@ -25,15 +25,16 @@ be decided before `expression.language` validation can be implemented.
 If E0's ratio is < 0.15, Phase 0 is the last phase — build only the
 search index.
 
-## Phase 1 — Claim data model and store
+## Phase 1 — Content-addressed store and claim data model
 
-**Crates:** `elench-claim` (full), `elench-store`
+**Crates:** `elench-store` (full), `elench-claim` (full)
 
+- Content-addressed storage: blobs, trees, claims (ADR-0001)
 - Claim types matching `schema/claim.schema.json`
 - Status computation by folding (INV-01 through INV-04)
 - Blast radius computation (transitive dependsOn closure)
-- Git ref namespace operations: store, read all, read for tree
-- Append-only enforcement (INV-01, INV-19)
+- Append-only enforcement (INV-01)
+- No git dependency, no daemon (INV-18)
 
 **Depends on:** Phase 0 (validator exists and passes).
 
@@ -43,10 +44,10 @@ search index.
 
 - DSSE envelope signing and verification
 - in-toto statement handling
-- Signer/producer distinction (INV-21)
-- Integration with claim storage (store only verified envelopes)
+- Signer/producer distinction (INV-22)
+- Integration with content-addressed storage (store only verified envelopes)
 
-**Depends on:** Phase 1 (claim types exist).
+**Depends on:** Phase 1 (claim types and store exist).
 
 ## Phase 3 — Release gate
 
@@ -63,15 +64,32 @@ search index.
 **Depends on:** Phase 1 (claim status, blast radius), Phase 2 (envelope
 verification for residue-acceptance records).
 
-## Phase 4 — CLI
+## Phase 4 — Git projection
 
-**Crate:** `elench` (binary)
+**Crate:** `elench` (binary, projection portion)
+
+- Deterministic commit synthesis from the claim log (ADR-0002,
+  ADR-0007, BC4)
+- `git log` shows commits derived from tree-changing claims
+- `git blame` maps lines to the claims that introduced them
+- `git checkout` materializes an elench tree as a working directory
+- Read-only: no write-through-git (INV-19, INV-21)
+- Two-party determinism test: same claim log → byte-identical git
+  objects (INV-20)
+
+**Depends on:** Phase 1 (store, claim log), Phase 2 (envelope
+verification for signed claims).
+
+## Phase 5 — CLI
+
+**Crate:** `elench` (binary, CLI portion)
 
 - `elench emit` — create, sign, store a claim
 - `elench verify` — verify envelope and validate claim
 - `elench status` — compute a claim's status
 - `elench gate` — evaluate the release gate for a tree
 - `elench blast` — compute the blast radius from a claim
+- `elench git` — materialize the git projection
 
 **Depends on:** All prior phases.
 

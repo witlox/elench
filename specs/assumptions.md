@@ -11,25 +11,36 @@ Three categories: **validated** (backed by evidence or prior art),
 contribution here is the claim log, not the rebuild comparison.
 *Source:* experiments/E2-build-reproducibility.md
 
-**A-V02.** Git ref namespaces support parallel storage without
-affecting human tooling. Radicle's COBs under `refs/cobs/` demonstrate
-replication, integrity, and offline availability from git for free.
-*Source:* ADR-0001
-
-**A-V03.** DSSE + in-toto provide the signer/producer distinction
+**A-V02.** DSSE + in-toto provide the signer/producer distinction
 needed for R2. SLSA's provenance predicate already separates builder
 and signer identity and does not assume a human signer.
 *Source:* ADR-0003
 
+**A-V03.** Git object synthesis is deterministic by construction.
+`git hash-object`, `git commit-tree`, and `git mktree` produce
+byte-identical output given the same input. The risk is in the
+derivation mapping (which claim becomes which commit), not in git's
+object format.
+*Source:* ADR-0007, BC4
+
+**A-V04.** Content-addressed storage is well-understood prior art.
+Git's object model (blobs, trees, commits) demonstrates the approach.
+elench owns its own store but does not invent the concept.
+*Source:* ADR-0001
+
 ## Accepted
 
-**A-A01.** Revocation is invisible in `git log`. Any git-side view is
-lossy in exactly the dimension carrying the signal. This is a migration
-affordance, not the interface being designed for.
-*Source:* ADR-0001 consequences
+**A-A01.** The git projection is lossy. Git commits have no concept of
+claim status, origin, or blast radius. `git log` shows a synthesized
+history; the authoritative view is elench-native. This is the same
+lossiness as before, but in the other direction — git is the view, not
+the substrate.
+*Source:* ADR-0002 consequences
 
-**A-A02.** Code and claims can drift — a rebase moves code out from
-under anchors. A reconciliation pass is required and does not exist yet.
+**A-A02.** Code and claims cannot drift — there is no separate tree to
+drift out from under anchors. But a tree change can still invalidate
+claims (moves code out from under anchors within the elench store). A
+reconciliation pass is required and does not exist yet.
 *Source:* ADR-0002 consequences
 
 **A-A03.** The predicate expression language is undecided. Deciding
@@ -37,10 +48,10 @@ before E0 is designing against a guess. E0's collected predicate
 expressions are the requirements input for this decision.
 *Source:* ADR-0004
 
-**A-A04.** The implementation substrate is undecided. The forcing
-requirements are: runs inside an existing agent sandbox, no daemon,
-deterministic evaluation, small enough to audit. The decision goes
-here before any code is written.
+**A-A04.** The implementation substrate is Rust (ADR-0005). The store
+is implemented from scratch — no libgit2, no gitoxide. This is more
+work but eliminates a large dependency and keeps the audit surface
+small.
 *Source:* ADR-0005
 
 **A-A05.** AGENTS.md rules are unimplemented gates. Until a validator
@@ -59,6 +70,11 @@ one; specifying it now would be guessing, and leaving it unspecified
 means it will be added badly under pressure. Flagged, not resolved.
 *Source:* docs/release-policy.md §Deliberately not specified
 
+**A-A08.** Git write-through is unsupported. Users who run `git commit`
+get an error or no-op. Writes go through elench, never through git.
+This is the price of making the claim log primary.
+*Source:* ADR-0002, FM-P3-03
+
 ## Unknown
 
 **A-U01.** Does the claim log converge, or grow without bound on an
@@ -67,7 +83,7 @@ active repository? No pruning story exists. Compaction may violate R1.
 
 **A-U02.** Who signs the residue acceptance under R5, and what stops
 it becoming a rubber stamp? This is the human-in-the-loop reappearing
-at the release boundary. It is deliberate, but it is also the obvious
+at the release boundary. It is deliberate, but it is the obvious
 failure point.
 *Source:* docs/problem.md §Open questions
 
@@ -96,3 +112,9 @@ and the release gate degrades to a single trusted builder.
 revocation cannot propagate and the central capability is unreachable
 regardless of the predicate ratio. Arguably a second stop condition.
 *Source:* experiments/E0-predicate-ratio.md §Secondary measurements
+
+**A-U08.** What is the granularity of a git-projection commit? One
+commit per tree-changing claim (precise but verbose), or one per
+session (loses blast-radius connection)? ADR-0007 specifies per-claim;
+this may be too dense for human consumption.
+*Source:* docs/problem.md §Open questions, ADR-0007

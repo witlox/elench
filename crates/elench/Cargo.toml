@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "An evidence layer for repositories worked on by agents"
+description = "An evidence layer for repositories — and the substrate that replaces git"
 
 [[bin]]
 name = "elench"
