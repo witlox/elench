@@ -13,6 +13,8 @@ direction, a contract, and a failure mode.
 | Release Gating | Verdict computation | Claim Evaluation (uses status), Predicate Evaluation |
 | Predicate Evaluation | Expression execution | — (gated by E0/ADR-0004) |
 | Git Projection | Git object synthesis from claim log | elench Store (reads), Claim Log (reads) |
+| elench Store | Content-addressed storage: blobs, trees, claims | — (leaf in workspace) |
+| Envelope Verification | DSSE envelope signing/verification | Claim Emission (before accepting) |
 
 ## Interactions
 

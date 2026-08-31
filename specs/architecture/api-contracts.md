@@ -56,6 +56,10 @@ pub enum Hermeticity {
     HermeticDerivation,
 }
 
+// Claim identifier. SHA-256 hash with `cl_` prefix (67 chars total).
+// Pattern: ^cl_[0-9a-f]{64}$. Never reassigned (R1, INV-03).
+pub struct ClaimId(String);
+
 // Claim (aggregate root)
 pub struct Claim {
     pub id: ClaimId,

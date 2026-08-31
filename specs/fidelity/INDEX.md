@@ -36,7 +36,7 @@ should be written at all.
 | INV-26 | Store is sole source of truth | NONE | No code |
 | INV-27 | Git projection is lossy, not authoritative | NONE | No code |
 
-23 active invariants (24 minus INV-10 removed, plus INV-25/26/27 added).
+26 active invariants (24 original minus INV-10 removed, plus INV-25/26/27 added).
 
 ## Features
 
