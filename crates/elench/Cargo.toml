@@ -1,0 +1,22 @@
+[package]
+name = "elench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "An evidence layer for repositories worked on by agents"
+
+[[bin]]
+name = "elench"
+path = "src/main.rs"
+
+[dependencies]
+elench-claim = { path = "../elench-claim" }
+elench-envelope = { path = "../elench-envelope" }
+elench-store = { path = "../elench-store" }
+elench-gate = { path = "../elench-gate" }
+
+[lints]
+workspace = true

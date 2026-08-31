@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/elench/claim/v0.1.json",
+  "title": "elench claim predicate (v0.1, DRAFT)",
+  "description": "Carried as the `predicate` of an in-toto Statement inside a DSSE envelope. The envelope supplies signer identity; this schema supplies producer identity, which is a different thing (R2). Status is NOT stored here — it is computed by folding the claim log. A `falsification` record is itself a claim with kind=falsification referencing a target.",
+
+  "type": "object",
+  "required": ["id", "kind", "assertion", "origin", "anchor"],
+  "additionalProperties": false,
+
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^cl_[0-9a-f]{64}$",
+      "description": "Content address of the claim at creation. Stable across status changes (R1). Never reassigned."
+    },
+
+    "kind": {
+      "enum": ["assertion", "falsification", "verification", "supersession", "residue-acceptance"],
+      "description": "falsification/verification/supersession MUST carry `target`. residue-acceptance is the R5 human signature over named unevaluated claims."
+    },
+
+    "target": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^cl_[0-9a-f]{64}$" },
+      "description": "Claims this record acts upon. Required unless kind=assertion."
+    },
+
+    "assertion": {
+      "type": "object",
+      "required": ["form"],
+      "additionalProperties": false,
+      "properties": {
+        "form": {
+          "enum": ["predicate", "annotation"],
+          "description": "predicate: machine-checkable, can gate. annotation: prose, searchable, CANNOT gate. Policies MUST NOT read annotations. The BC1 ratio is measured over this field."
+        },
+        "expression": {
+          "type": "object",
+          "required": ["language", "source"],
+          "properties": {
+            "language": { "type": "string", "description": "Undecided. See ADR-0004." },
+            "source": { "type": "string" },
+            "digest": { "type": "string" }
+          },
+          "description": "REQUIRED when form=predicate. A predicate without an executable expression is an annotation wearing a costume; validators MUST reject."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Human-readable. Never load-bearing."
+        }
+      }
+    },
+
+    "origin": {
+      "type": "object",
+      "required": ["kind", "producer"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["harness-observed", "agent-asserted", "human-asserted"],
+          "description": "R2. harness-observed may ONLY be emitted by the harness. See AGENTS.md. Policies may and generally should discriminate on this."
+        },
+        "producer": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "string", "description": "Harness build id, model id + version, or human key id." },
+            "sessionId": { "type": "string" },
+            "hermeticity": {
+              "enum": ["none", "container", "vm", "hermetic-derivation"],
+              "description": "BC3. Self-reported and therefore only as good as the producer. Present so policy can require a floor, not because it is trusted."
+            }
+          }
+        }
+      }
+    },
+
+    "anchor": {
+      "$comment": "UNRESOLVED. See docs/anchoring.md. This shape is a placeholder that records all three candidate strategies simultaneously so E1 can measure which survives. Expect this object to change entirely.",
+      "type": "object",
+      "required": ["tree", "strategy"],
+      "properties": {
+        "tree": { "type": "string", "description": "Commit OID the anchor was resolved against." },
+        "strategy": { "enum": ["path-range", "symbol", "content-digest", "multi"] },
+        "path": { "type": "string" },
+        "range": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+        "symbol": { "type": "string", "description": "Language-server qualified name." },
+        "contentDigest": { "type": "string", "description": "Digest of the anchored span, normalised." }
+      }
+    },
+
+    "evidence": {
+      "type": "array",
+      "description": "Empty for agent-asserted claims by default; that emptiness is the signal, not a gap to fill. A human-asserted claim with no evidence is authority without evidence, which is a legitimate and distinguishable state.",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["process-exit", "test-report", "artifact-digest", "external-attestation"] },
+          "digest": { "type": "string" },
+          "exitCode": { "type": "integer" },
+          "uri": { "type": "string" }
+        }
+      }
+    },
+
+    "dependsOn": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^cl_[0-9a-f]{64}$" },
+      "description": "Premises. The transitive closure over this field IS the blast radius when something upstream is falsified. This field is the reason the project exists; if it is left empty in practice, revocation cannot propagate and the whole design collapses to per-claim status flags."
+    }
+  }
+}

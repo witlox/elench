@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/elench",
+    "crates/elench-claim",
+    "crates/elench-envelope",
+    "crates/elench-store",
+    "crates/elench-gate",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Pim Witlox <pim@witlox.io>"]
+repository = "https://github.com/witlox/elench"
+homepage = "https://github.com/witlox/elench"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
