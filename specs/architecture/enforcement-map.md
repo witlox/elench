@@ -25,7 +25,6 @@ where enforcement WILL live once the validator is built (ADR-0006).
 | INV-07: Only harness emits verification | `elench-claim::validate_claim` — reject kind=verification from non-harness | UNIMPLEMENTED |
 | INV-08: Predicate requires expression | `elench-claim::validate_claim` — reject form=predicate without expression | UNIMPLEMENTED |
 | INV-09: Annotations never read by policy | `elench-gate::evaluate` — filter on form before evaluating | UNIMPLEMENTED |
-| INV-10: dependsOn populated | `elench-claim::validate_claim` — warn or reject empty dependsOn | UNIMPLEMENTED |
 | INV-11: Failure recorded only when status changed | `elench-claim` — emission rule, checked by validator | UNIMPLEMENTED |
 | INV-12: No residue-acceptance from agents | `elench-claim::validate_claim` — reject kind=residue-acceptance from non-human | UNIMPLEMENTED |
 
@@ -52,6 +51,9 @@ where enforcement WILL live once the validator is built (ADR-0006).
 | INV-19: Git projection is read-only | `elench` binary (git projection) — no write path to store | UNIMPLEMENTED |
 | INV-20: Git synthesis deterministic | `elench` binary (git projection) — ADR-0007, tested by two-machine synthesis | UNIMPLEMENTED |
 | INV-21: Git projection no side effects | `elench` binary (git projection) — reads only, generates objects | UNIMPLEMENTED |
+| INV-25: Content addressing (SHA-256) | `elench-store` — OID computation, verified on read | UNIMPLEMENTED |
+| INV-26: Store is sole source of truth | `elench-gate::evaluate`, `elench` binary (projection) — no external state reads | UNIMPLEMENTED |
+| INV-27: Git projection is lossy, not authoritative | `elench` binary (projection) — no status/origin/blast-radius in git objects | UNIMPLEMENTED |
 
 ## Supply-chain composability (R7, ADR-0003)
 

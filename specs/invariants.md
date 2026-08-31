@@ -40,9 +40,8 @@ validation. Prose gates do not gate.
 `assertion.form = "annotation"` claim cannot contribute to a gate
 verdict regardless of its content.
 
-**INV-10.** A claim MUST populate `dependsOn` with the claims it relied
-on. A claim with no premises asserts it was reached from nothing —
-occasionally true, usually a bug in the emission path.
+**INV-10.** REMOVED. Empty `dependsOn` is a warning, not a rejection.
+Downgraded to a guideline per domain expert decision.
 
 **INV-11.** A failure is recorded only when it changed some claim's
 status. A failed attempt that falsified nothing is noise and must not
@@ -110,3 +109,21 @@ answer.
 **INV-24.** The AGENTS.md emission rules MUST be enforced by a
 validator. Until implemented, they are `unevaluated`, not `passed`.
 The first implementation milestone is the validator, not the CLI.
+
+## Substrate and projection (addendum)
+
+**INV-25.** A blob's OID MUST equal a deterministic SHA-256 hash of its
+content. A tree's OID MUST equal a deterministic SHA-256 hash of its
+canonical serialization (sorted entries, mode, path, blob OID). Two
+objects with the same content have the same OID. This is the
+content-addressing property; without it the store is not the substrate.
+
+**INV-26.** All derived views (claim status, blast radius, git
+projection, release verdict) are computable from the elench store
+alone. No external state (configuration, identity, network) is required
+for evaluation.
+
+**INV-27.** The git projection is lossy by design. Claim status,
+origin.kind, and blast radius are NOT recoverable from git objects. The
+git projection MUST NOT be the authoritative source for any property
+the claim log computes.

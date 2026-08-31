@@ -136,7 +136,7 @@ not in git's object format. Addressed in ADR-0007.
   failure point.
 - If two agents assert contradictory predicates and neither is
   falsified, what is the tree's status? Currently undefined.
-- What is the granularity of a git-projection commit? One commit per
-  tree-changing claim, or one commit per session? The former is
-  precise but verbose; the latter loses the blast-radius connection.
-  ADR-0007 must decide.
+- What is the granularity of a git-projection commit? Answered by
+  ADR-0007: one commit per tree-changing claim. The density risk (too
+  verbose for human consumption) is accepted as A-A09; a session-level
+  aggregation view may be added later.

@@ -13,9 +13,9 @@ still identify the intended code after a realistic refactor sequence?
 1. Pick 3–5 repositories with real history. Include at least one with a
    large mechanical reformat in its past (a formatter adoption commit) — that
    is the adversarial case and it is common.
-2. At commit C0, place 100+ synthetic anchors across representative code:
+2. At tree T0, place 100+ synthetic anchors across representative code:
    function bodies, interface definitions, config constants, test assertions.
-3. Replay history forward N commits. For each anchor and each strategy,
+3. Replay history forward N tree states. For each anchor and each strategy,
    record: resolved correctly / resolved to wrong code / failed to resolve.
 4. **Wrong-resolution is the outcome that matters.** Failure to resolve is
    loud and recoverable. Silent misresolution poisons the blast radius and is

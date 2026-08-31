@@ -75,6 +75,11 @@ get an error or no-op. Writes go through elench, never through git.
 This is the price of making the claim log primary.
 *Source:* ADR-0002, FM-P3-03
 
+**A-A09.** One commit per tree-changing claim (ADR-0007). May be too
+dense for human consumption; a session-level aggregation view may be
+needed but is not blocking.
+*Source:* ADR-0007, docs/problem.md §Open questions
+
 ## Unknown
 
 **A-U01.** Does the claim log converge, or grow without bound on an
@@ -112,9 +117,3 @@ and the release gate degrades to a single trusted builder.
 revocation cannot propagate and the central capability is unreachable
 regardless of the predicate ratio. Arguably a second stop condition.
 *Source:* experiments/E0-predicate-ratio.md §Secondary measurements
-
-**A-U08.** What is the granularity of a git-projection commit? One
-commit per tree-changing claim (precise but verbose), or one per
-session (loses blast-radius connection)? ADR-0007 specifies per-claim;
-this may be too dense for human consumption.
-*Source:* docs/problem.md §Open questions, ADR-0007

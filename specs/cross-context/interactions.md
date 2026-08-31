@@ -123,4 +123,4 @@ violating R3.
 4. **Git projection granularity** (Git Projection ↔ Claim Evaluation):
    One commit per tree-changing claim (ADR-0007) may be too dense for
    human consumption. A session-level aggregation view may be needed
-   (A-U08).
+   (A-A09).

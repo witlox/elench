@@ -20,7 +20,7 @@ by folding the log, never stored. The git projection is derived from
 the claim log, not the other way around.
 
 **status** — a claim's current standing, computed from the log: `passed`,
-`failed`, `unevaluated`. NOT a stored field. A claim with no
+`falsified`, `unevaluated`. NOT a stored field. A claim with no
 falsification or verification record against it is `unevaluated` by
 default, not `passed`.
 
@@ -44,7 +44,10 @@ emits these. An agent believing something passed is an assertion, not a
 verification.
 
 **supersession** — a claim with `kind = supersession` targeting an
-earlier claim. The earlier claim is not falsified but is replaced.
+earlier claim. The earlier claim is not falsified but is replaced. A
+supersession claim changes the target's computed status to `falsified`
+— same status effect as falsification, different intent. Supersession is
+a claim kind, not a status value.
 
 **residue-acceptance** — a claim with `kind = residue-acceptance`. A
 human key signing over named unevaluated gaps. The terminator, made
@@ -53,16 +56,13 @@ specific gaps." Agents MUST NOT emit this.
 
 ## Status values
 
-**unevaluated** — no verification was attempted. Distinct from `failed`
+**unevaluated** — no verification was attempted. Distinct from `falsified`
 (verification ran and did not hold) and from `passed`. Most of a
 brownfield repository is `unevaluated`, and a system that cannot say so
 is lying.
 
 **passed** — a verification record exists and no falsification has
 invalidated it. Computed, not stored.
-
-**failed** — a falsification record has changed the claim's status from
-`passed` to `falsified`. Computed, not stored.
 
 ## Origin
 
@@ -135,7 +135,11 @@ agreement). UNRESOLVED — E1 determines which survives.
 
 **elench store** — the content-addressed store that IS the substrate
 (ADR-0001). Holds blobs, trees, and claims. No daemon. Everything is
-derivable from the store by a client-side binary.
+derivable from the store by a client-side binary. Blobs and trees are
+addressed by SHA-256 content hash (64 hex chars, no prefix), identical
+to git SHA-256 blob/tree OIDs. Claims are addressed with a `cl_`
+prefix. The git projection is a passthrough for blobs and trees; only
+commits are synthesized.
 
 **git projection** — a deterministic, read-only synthesis of git objects
 from the claim log (ADR-0002). `git log`, `git blame`, `git checkout`

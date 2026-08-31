@@ -11,13 +11,14 @@ gated by E0.
 **Crate:** `elench-claim` (validation portion only)
 
 The validator enforces the AGENTS.md emission rules (INV-05 through
-INV-12, INV-24). A claim log with unenforced rules is testimony from
-the audited party in a structured format — not evidence.
+INV-09, INV-11, INV-12, INV-24; INV-10 is a guideline warning, not a
+rejection). A claim log with unenforced rules is testimony from the
+audited party in a structured format — not evidence.
 
 - Claim schema validation (against `schema/claim.schema.json`)
 - Origin.kind enforcement (INV-05, INV-06, INV-07, INV-12)
-- Predicate/annotation enforcement (INV-08, INV-09)
-- dependsOn population check (INV-10)
+- Predicate enforcement (INV-08)
+- dependsOn population warning (guideline, was INV-10 — warning, not rejection)
 - Failure recording rule (INV-11)
 
 **Gating:** E0 must run first. The predicate language (ADR-0004) must
@@ -59,6 +60,7 @@ search index.
   3. Origin floor (uses origin from Phase 1)
   4. Builder agreement (UNAVAILABLE unless E2 passes)
 - Gate evaluation without build capability (INV-13)
+- Annotation filtering — annotations never contribute to gate verdict (INV-09)
 - Live evaluation, no cached verdict (INV-14, INV-15)
 
 **Depends on:** Phase 1 (claim status, blast radius), Phase 2 (envelope

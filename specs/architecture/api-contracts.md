@@ -110,8 +110,16 @@ pub fn verify(envelope: &Envelope) -> Result<Claim, EnvelopeError>;
 
 ```rust
 /// Content address of a blob, tree, or claim.
-/// NOT a git OID. The store owns its own addressing.
+/// Blobs and trees: SHA-256 hash (64 hex chars, no prefix), identical to git SHA-256 OIDs.
+/// Claims: `cl_` prefix + SHA-256 hash (see ClaimId).
+/// The git projection is a passthrough for blobs and trees; only commits are synthesized.
 pub struct Oid(String);
+
+/// A blob: content-addressed byte array.
+pub struct Blob {
+    pub oid: Oid,
+    pub data: Vec<u8>,
+}
 
 /// A tree entry: path + mode + blob OID.
 pub struct TreeEntry {
@@ -122,6 +130,7 @@ pub struct TreeEntry {
 
 /// A tree: sorted entries, content-addressed.
 pub struct Tree {
+    pub oid: Oid,
     pub entries: Vec<TreeEntry>,
 }
 ```

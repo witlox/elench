@@ -15,7 +15,7 @@ underneath — the claim log IS the history.
 
 ## Decision
 
-elenench owns its own content-addressed store. The claim log is the
+elench owns its own content-addressed store. The claim log is the
 primary history: it records tree state (as content-addressed blobs and
 trees), signed assertions about that state, and status changes — all
 in one append-only log. There is no separate git repository; there is

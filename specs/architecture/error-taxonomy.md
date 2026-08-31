@@ -26,8 +26,8 @@ pub enum ValidationError {
     #[error("residue-acceptance must name specific gaps (non-empty target)")]
     ResidueAcceptanceWithoutTargets,             // INV-12
 
-    #[error("dependsOn is empty — claim asserts it was reached from nothing")]
-    EmptyDependsOn,                              // INV-10 (warn, not reject)
+    #[error("dependsOn is empty — claim asserts it was reached from nothing (warning)")]
+    EmptyDependsOn,                              // GUIDELINE (was INV-10, downgraded)
 
     #[error("schema validation failed: {0}")]
     SchemaViolation(String),                     // general

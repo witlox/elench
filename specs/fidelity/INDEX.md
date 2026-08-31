@@ -17,7 +17,7 @@ should be written at all.
 | INV-07 | Only harness emits verification | NONE | No validator yet (A-A05) |
 | INV-08 | Predicate requires executable expression | NONE | No validator yet (A-A05) |
 | INV-09 | Annotations never read by policy | NONE | No code |
-| INV-10 | dependsOn populated with premises | NONE | No code |
+| INV-10 | dependsOn populated with premises | REMOVED | Downgraded to guideline; empty dependsOn is a warning, not a rejection |
 | INV-11 | Failure recorded only when status changed | NONE | No code |
 | INV-12 | Agents cannot emit residue-acceptance | NONE | No validator yet (A-A05) |
 | INV-13 | Gate evaluable without build capability | NONE | No code |
@@ -32,6 +32,11 @@ should be written at all.
 | INV-22 | Agent claims and provenance share DSSE/in-toto | NONE | No code |
 | INV-23 | Predicate expressions executable/deterministic/sandboxable | NONE | Gated by E0/ADR-0004 |
 | INV-24 | AGENTS.md rules enforced by validator | NONE | First milestone (ADR-0006) |
+| INV-25 | Content addressing (SHA-256) | NONE | No code |
+| INV-26 | Store is sole source of truth | NONE | No code |
+| INV-27 | Git projection is lossy, not authoritative | NONE | No code |
+
+23 active invariants (24 minus INV-10 removed, plus INV-25/26/27 added).
 
 ## Features
 

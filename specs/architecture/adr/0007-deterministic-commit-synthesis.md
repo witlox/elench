@@ -17,8 +17,10 @@ Commit OIDs are derived from the claim log, not from wall-clock time
 or machine state. Specifically:
 
 1. **Tree OID.** The content address of the tree state, computed
-   deterministically from the store. Same as git's tree object —
-   sorted entries, content-addressed blobs.
+   as a SHA-256 hash of the canonical serialization (sorted entries,
+   mode, path, blob OID). This is identical to a git SHA-256 tree OID —
+   the projection is a passthrough for trees and blobs. Only commits
+   are synthesized.
 2. **Commit OID.** Computed from (tree OID, parent commit OIDs,
    author, committer, message, timestamps) — all derived from the
    claim log, not the machine.
@@ -35,6 +37,10 @@ or machine state. Specifically:
    session that produces N tree changes gets N commits. This preserves
    the blast-radius connection: `git blame` maps to the specific claim
    that introduced the line.
+
+elench uses SHA-256 for all content addressing. Blobs, trees, and
+claims are all SHA-256. The git projection produces SHA-256 git objects;
+consumers use SHA-256 git repos. No SHA-1 is used anywhere.
 
 ## Rejected alternatives
 

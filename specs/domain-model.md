@@ -14,6 +14,8 @@ traces to a constraint.
 | Release Gating | Evaluate release policy against claims | Verdict |
 | Predicate Evaluation | Execute predicate expressions (GATED by E0) | Expression |
 | Git Projection | Synthesize git objects from the claim log | GitCommit |
+| elench Store | Content-addressed storage: blobs, trees, claims | Store |
+| Envelope Verification | DSSE envelope signing and verification | Envelope |
 
 ## Aggregates
 
@@ -130,6 +132,30 @@ generated on demand.
 | `committer` | string | Same as author (no separate committer). |
 | `message` | string | Derived from an annotation claim, if present. |
 
+### Store entities
+
+### Blob
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| oid | string `[0-9a-f]{64}` | yes | SHA-256 content hash. Identical to git SHA-256 blob OID. |
+| data | bytes | yes | Content. |
+
+### TreeEntry
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| path | string | yes | Path relative to tree root. |
+| mode | integer | yes | File mode (e.g., 0o100644 for regular file). |
+| blob | string `[0-9a-f]{64}` | yes | SHA-256 content hash of the blob. |
+
+### Tree
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| oid | string `[0-9a-f]{64}` | yes | SHA-256 content hash of the tree (sorted entries, canonical serialization). Identical to git SHA-256 tree OID. |
+| entries | array of TreeEntry | yes | Sorted by path. |
+
 ## Entity relationships
 
 ```
@@ -153,25 +179,19 @@ Verdict
 ## Status machine
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │                                     │
-                    ▼                                     │
               ┌───────────┐    falsification      ┌──────────┐
    (default)  │unevaluated│ ──────────────────▶   │falsified │
-              └───────────┘                       └──────────┘
+              └───────────┘    supersession       └──────────┘
                     │                                   ▲
           verification                                │
-                    ▼                                   │
-              ┌───────────┐    falsification           │
-              │  passed   │ ──────────────────────▶   │
-              └───────────┘                             │
-                    │                                   │
-                  supersession                          │
-                    ▼                                   │
-              ┌───────────┐    falsification           │
-              │superseded │ ──────────────────────▶   │
-              └───────────┘                             │
+                    ▼                                  │
+              ┌───────────┐    falsification          │
+              │  passed   │ ──────────────────────▶  │
+              └───────────┐    supersession          │
+                                                  │
 ```
 
 Status is computed by folding the log, not stored. A claim's status at
 any point in time is a pure function of the claims that target it.
+Falsification and supersession both change the target's status to
+`falsified`; they differ in intent, not in status effect.

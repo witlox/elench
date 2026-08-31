@@ -40,11 +40,14 @@ crate maps to one or more bounded contexts. Dependencies are acyclic.
 | `elench` | `elench-envelope` | Envelope signing/verification |
 | `elench` | `elench-store` | Content-addressed storage |
 | `elench` | `elench-gate` | Release gate evaluation |
+| `elench-envelope` | `elench-claim` | Claim type (sign/verify) |
+| `elench-store` | `elench-claim` | Claim type (store/read) |
 | `elench-gate` | `elench-claim` | Status computation (log fold) |
 
-No cycles. `elench-claim` is the leaf — it depends on nothing in the
-workspace. `elench-gate` depends on `elench-claim`. The binary depends
-on all four library crates. The git projection lives in the binary
+No cycles. `elench-claim` is the sole leaf — it depends on nothing in
+the workspace. `elench-envelope`, `elench-store`, and `elench-gate` all
+depend on `elench-claim`. The binary depends on all four library
+crates. The git projection lives in the binary
 (`elench`) because it is a synthesis of objects from the store and the
 claim log — it has no separate crate because it is not reusable
 infrastructure, it is the compatibility layer.
