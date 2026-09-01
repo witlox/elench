@@ -482,19 +482,17 @@ fn compute_status_inner(
     // Find all claims that target this one.
     let targeting: Vec<&Claim> = log.iter().filter(|c| c.target.contains(claim_id)).collect();
 
-    if targeting.is_empty() {
-        return Ok(ClaimStatus::Unevaluated);
-    }
-
     // Check for active falsifications (falsification or supersession
     // that has not itself been falsified).
     let mut has_active_falsification = false;
-    for c in &targeting {
-        if c.kind == ClaimKind::Falsification || c.kind == ClaimKind::Supersession {
-            let c_status = compute_status_inner(&c.id, log, visited)?;
-            if c_status != ClaimStatus::Falsified {
-                has_active_falsification = true;
-                break;
+    if !targeting.is_empty() {
+        for c in &targeting {
+            if c.kind == ClaimKind::Falsification || c.kind == ClaimKind::Supersession {
+                let c_status = compute_status_inner(&c.id, log, visited)?;
+                if c_status != ClaimStatus::Falsified {
+                    has_active_falsification = true;
+                    break;
+                }
             }
         }
     }
@@ -506,18 +504,33 @@ fn compute_status_inner(
     // Check for active verifications (verification that has not been
     // falsified).
     let mut has_active_verification = false;
-    for c in &targeting {
-        if c.kind == ClaimKind::Verification {
-            let c_status = compute_status_inner(&c.id, log, visited)?;
-            if c_status != ClaimStatus::Falsified {
-                has_active_verification = true;
-                break;
+    if !targeting.is_empty() {
+        for c in &targeting {
+            if c.kind == ClaimKind::Verification {
+                let c_status = compute_status_inner(&c.id, log, visited)?;
+                if c_status != ClaimStatus::Falsified {
+                    has_active_verification = true;
+                    break;
+                }
             }
         }
     }
 
     if has_active_verification {
         return Ok(ClaimStatus::Passed);
+    }
+
+    // Check if any of this claim's depends_on premises are falsified.
+    // If a premise is falsified, this claim is also falsified
+    // (transitive falsification through dependsOn).
+    let claim_itself = log.iter().find(|c| &c.id == claim_id);
+    if let Some(claim) = claim_itself {
+        for dep in &claim.depends_on {
+            let dep_status = compute_status_inner(dep, log, visited)?;
+            if dep_status == ClaimStatus::Falsified {
+                return Ok(ClaimStatus::Falsified);
+            }
+        }
     }
 
     Ok(ClaimStatus::Unevaluated)
