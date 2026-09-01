@@ -39,7 +39,7 @@
           "type": "object",
           "required": ["language", "source"],
           "properties": {
-            "language": { "type": "string", "description": "Undecided. See ADR-0004." },
+            "language": { "type": "string", "description": "elench-predicate-v1. See ADR-0004." },
             "source": { "type": "string" },
             "digest": { "type": "string" }
           },
@@ -78,12 +78,12 @@
     },
 
     "anchor": {
-      "$comment": "UNRESOLVED. See docs/anchoring.md. This shape is a placeholder that records all three candidate strategies simultaneously so E1 can measure which survives. Expect this object to change entirely.",
+      "$comment": "RESOLVED (E1). The anchor object uses strategy=multi by default — all three strategies (path-range, symbol, content-digest) recorded simultaneously, resolved by agreement, with 'degraded' reported when they disagree. See experiments/E1-anchor-survival-result.md.",
       "type": "object",
       "required": ["tree", "strategy"],
       "properties": {
         "tree": { "type": "string", "description": "elench tree OID (content address of the tree state in the store, ADR-0001). Not a git commit OID." },
-        "strategy": { "enum": ["path-range", "symbol", "content-digest", "multi"] },
+        "strategy": { "enum": ["path-range", "symbol", "content-digest", "multi"], "default": "multi" },
         "path": { "type": "string" },
         "range": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
         "symbol": { "type": "string", "description": "Language-server qualified name." },

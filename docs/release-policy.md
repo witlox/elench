@@ -22,7 +22,8 @@ of the following are true at evaluation time:
    subject `D` for tree `T`, each meeting `P`'s `hermeticity` floor.
 
 Condition 4 is where "true artifact" actually lives, and it is the expensive
-one. It is unavailable unless E2 passes.
+one. **Available** — E2 passed (same-triple divergences all cheap-to-fix;
+K-of-N agreement is per target triple).
 
 ## Evaluation is live, not frozen
 
