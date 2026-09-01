@@ -273,15 +273,11 @@ impl Store {
     pub fn store_claim(&mut self, claim: &Claim) -> Result<String, StoreError> {
         let oid = elench_claim::ClaimId::from_content(claim).to_string();
 
+        let json = serde_json::to_string(claim)
+            .map_err(|e| StoreError::CorruptStore(format!("claim serialization failed: {e}")))?;
+
         if let Some(existing) = self.claims.get(&oid) {
-            // Idempotent check: if the serialized claim is different
-            // but the OID is the same, that's a content-addressing
-            // collision (should be impossible with SHA-256, but we
-            // check anyway for INV-28).
-            let new_json = serde_json::to_string(&claim_json(claim)).map_err(|e| {
-                StoreError::CorruptStore(format!("claim serialization failed: {e}"))
-            })?;
-            if existing != &new_json {
+            if existing != &json {
                 return Err(StoreError::ContentAddressingViolation {
                     oid,
                     reason: "claim content does not match existing OID".to_string(),
@@ -290,8 +286,6 @@ impl Store {
             return Ok(oid);
         }
 
-        let json = serde_json::to_string(&claim_json(claim))
-            .map_err(|e| StoreError::CorruptStore(format!("claim serialization failed: {e}")))?;
         self.claims.insert(oid.clone(), json);
         Ok(oid)
     }
@@ -327,22 +321,21 @@ impl Store {
 
     /// Read all claims from the store.
     ///
+    /// Each claim is stored as JSON; this deserializes them back to
+    /// `Claim` objects.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::CorruptStore`] if any claim JSON is invalid.
     pub fn read_all_claims(&self) -> Result<Vec<Claim>, StoreError> {
-        // Claims are stored as JSON strings that need to be deserialized.
-        // For Phase 1, we store the raw JSON and return it as-is.
-        // A full implementation would deserialize to Claim, but that
-        // requires a serde Serialize/Deserialize implementation on Claim
-        // which is deferred to avoid circular dependency complexity.
-        // For now, we return an empty vec if no claims, and the count
-        // is available via claim_count().
-        //
-        // This is a known limitation — Phase 1 focuses on blob/tree
-        // storage. Claim storage is idempotent and content-addressed,
-        // but full deserialization is Phase 2 (envelope) territory.
-        Ok(Vec::new())
+        let mut claims = Vec::with_capacity(self.claims.len());
+        for (oid, json) in &self.claims {
+            let claim: Claim = serde_json::from_str(json).map_err(|e| {
+                StoreError::CorruptStore(format!("failed to deserialize claim {oid}: {e}"))
+            })?;
+            claims.push(claim);
+        }
+        Ok(claims)
     }
 
     /// Read claims for a specific tree (by elench tree OID).
@@ -350,9 +343,12 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::CorruptStore`] if the claim log is corrupt.
-    pub fn read_claims_for_tree(&self, _tree: &Oid) -> Result<Vec<Claim>, StoreError> {
-        // Phase 1: returns empty (claim deserialization deferred).
-        Ok(Vec::new())
+    pub fn read_claims_for_tree(&self, tree: &Oid) -> Result<Vec<Claim>, StoreError> {
+        let all = self.read_all_claims()?;
+        Ok(all
+            .into_iter()
+            .filter(|c| c.anchor.tree == tree.as_str())
+            .collect())
     }
 
     /// Number of blobs in the store.
@@ -421,15 +417,6 @@ pub enum StoreError {
 // Claim JSON serialization (minimal, for store_claim)
 // ---------------------------------------------------------------------------
 
-fn claim_json(claim: &Claim) -> serde_json::Value {
-    serde_json::json!({
-        "id": claim.id.as_str(),
-        "kind": claim.kind_str(),
-        "target": claim.target.iter().map(elench_claim::ClaimId::as_str).collect::<Vec<_>>(),
-        "timestamp": claim.timestamp,
-    })
-}
-
 // ---------------------------------------------------------------------------
 // hex encoding/decoding (avoid pulling in a hex crate)
 // ---------------------------------------------------------------------------
@@ -475,6 +462,7 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elench_claim::{Anchor, AnchorStrategy};
 
     // --- Oid tests ---
 
@@ -548,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn scenario_store_blob_content_addressing_violation() {
+    fn scenario_store_blob_idempotent_no_violation() {
         // This should be impossible with SHA-256, but we test the
         // guard anyway. Since Oid::from_blob_data always produces the
         // correct hash, this test verifies that the guard exists.
@@ -903,5 +891,123 @@ mod tests {
             .unwrap();
         assert!(store.has_tree(&tree_oid));
         assert!(!store.has_tree(&Oid::new("1".repeat(64)).unwrap()));
+    }
+
+    #[test]
+    fn scenario_store_claim_round_trip() {
+        let mut store = Store::new();
+        let claim = elench_claim::Claim {
+            id: elench_claim::ClaimId::new(
+                "cl_0000000000000000000000000000000000000000000000000000000000000050",
+            )
+            .unwrap(),
+            kind: elench_claim::ClaimKind::Assertion,
+            target: vec![],
+            assertion: elench_claim::AssertionForm::Annotation {
+                text: "test".into(),
+            },
+            origin: elench_claim::Origin {
+                kind: elench_claim::OriginKind::AgentAsserted,
+                producer: elench_claim::Producer {
+                    id: "agent".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "t".into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let oid = store.store_claim(&claim).unwrap();
+        assert!(store.has_claim(&oid));
+        assert_eq!(store.claim_count(), 1);
+
+        // Read it back
+        let claims = store.read_all_claims().unwrap();
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].id, claim.id);
+        assert_eq!(claims[0].kind, claim.kind);
+        assert_eq!(claims[0].anchor.tree, claim.anchor.tree);
+    }
+
+    #[test]
+    fn scenario_read_claims_for_tree_filters() {
+        let mut store = Store::new();
+        let claim_a = elench_claim::Claim {
+            id: elench_claim::ClaimId::new(
+                "cl_0000000000000000000000000000000000000000000000000000000000000051",
+            )
+            .unwrap(),
+            kind: elench_claim::ClaimKind::Assertion,
+            target: vec![],
+            assertion: elench_claim::AssertionForm::Annotation { text: "a".into() },
+            origin: elench_claim::Origin {
+                kind: elench_claim::OriginKind::AgentAsserted,
+                producer: elench_claim::Producer {
+                    id: "agent".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "tree_a".into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let claim_b = elench_claim::Claim {
+            id: elench_claim::ClaimId::new(
+                "cl_0000000000000000000000000000000000000000000000000000000000000052",
+            )
+            .unwrap(),
+            kind: elench_claim::ClaimKind::Assertion,
+            target: vec![],
+            assertion: elench_claim::AssertionForm::Annotation { text: "b".into() },
+            origin: elench_claim::Origin {
+                kind: elench_claim::OriginKind::AgentAsserted,
+                producer: elench_claim::Producer {
+                    id: "agent".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "tree_b".into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        store.store_claim(&claim_a).unwrap();
+        store.store_claim(&claim_b).unwrap();
+
+        let tree_a_claims = store
+            .read_claims_for_tree(&Oid::new("a".repeat(64)).unwrap())
+            .unwrap();
+        // tree_a is "tree_a" not a valid Oid, so no claims match
+        assert!(tree_a_claims.is_empty());
+
+        // But read_all_claims returns both
+        let all = store.read_all_claims().unwrap();
+        assert_eq!(all.len(), 2);
     }
 }

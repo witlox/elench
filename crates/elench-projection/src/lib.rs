@@ -690,25 +690,6 @@ mod tests {
         assert_ne!(proj1.commits[0].oid, proj2.commits[0].oid);
     }
 
-    // --- INV-21: projection produces no side effects ---
-
-    #[test]
-    fn scenario_inv21_no_side_effects() {
-        let log = vec![make_tree_changing_claim(
-            ID_A,
-            TREE_1,
-            "agent",
-            1_700_000_000,
-        )];
-        let store = elench_store::Store::new();
-        let store_before = store.blob_count();
-
-        let _projection = synthesize(&log, &store).unwrap();
-
-        // Store is unchanged
-        assert_eq!(store.blob_count(), store_before);
-    }
-
     // --- INV-19: projection is read-only ---
 
     #[test]
@@ -728,5 +709,23 @@ mod tests {
         assert_eq!(store.blob_count(), blob_before);
         assert_eq!(store.tree_count(), tree_before);
         assert_eq!(store.claim_count(), claim_before);
+    }
+    // --- INV-27: projection is lossy (GAP-H1) ---
+
+    #[test]
+    fn scenario_inv27_projection_is_lossy() {
+        let log = vec![make_tree_changing_claim(
+            ID_A,
+            TREE_1,
+            "agent",
+            1_700_000_000,
+        )];
+        let store = elench_store::Store::new();
+        let projection = synthesize(&log, &store).unwrap();
+        let log_output = git_log_full(&projection);
+        assert!(!log_output.contains("unevaluated"));
+        assert!(!log_output.contains("falsified"));
+        assert!(!log_output.contains("harness-observed"));
+        assert!(!log_output.contains("agent-asserted"));
     }
 }

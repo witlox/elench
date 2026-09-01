@@ -274,13 +274,35 @@ pub fn evaluate(tree: &str, policy: &Policy, log: &[Claim]) -> Result<Verdict, G
     // K independent producers have signed statements with subject D
     // for tree T, each meeting P's hermeticity floor.
     if policy.min_builders > 0 {
-        // Count distinct producers with verification claims for this tree
+        // Count distinct producers with verification claims for this tree,
+        // each meeting the policy's hermeticity floor.
         let mut producer_ids: Vec<String> = Vec::new();
         for claim in &tree_claims {
             if claim.kind == ClaimKind::Verification {
                 let status = elench_claim::compute_status(&claim.id, log)
                     .unwrap_or(ClaimStatus::Unevaluated);
                 if status != ClaimStatus::Falsified {
+                    // Check hermeticity floor (GAP-C1 fix)
+                    let meets_floor = match &claim.origin.producer.hermeticity {
+                        None => policy.min_hermeticity == HermeticityFloor::Any,
+                        Some(elench_claim::Hermeticity::None) => {
+                            policy.min_hermeticity == HermeticityFloor::Any
+                        }
+                        Some(elench_claim::Hermeticity::Container) => matches!(
+                            policy.min_hermeticity,
+                            HermeticityFloor::Any | HermeticityFloor::Container
+                        ),
+                        Some(elench_claim::Hermeticity::Vm) => matches!(
+                            policy.min_hermeticity,
+                            HermeticityFloor::Any
+                                | HermeticityFloor::Container
+                                | HermeticityFloor::Vm
+                        ),
+                        Some(elench_claim::Hermeticity::HermeticDerivation) => true,
+                    };
+                    if !meets_floor {
+                        continue;
+                    }
                     let pid = &claim.origin.producer.id;
                     if !producer_ids.contains(pid) {
                         producer_ids.push(pid.clone());
@@ -806,5 +828,94 @@ mod tests {
         let verdict = evaluate("tree_b", &policy, &log).unwrap();
         assert_eq!(verdict.result, VerdictResult::Pass);
         assert!(verdict.reasons.is_empty());
+    }
+
+    // --- Hermeticity floor (GAP-C1) ---
+
+    #[test]
+    fn scenario_hermeticity_floor_rejects_below_minimum() {
+        let target = make_predicate_claim(ID_A, OriginKind::AgentAsserted, TREE);
+        let builder_none = Claim {
+            id: ClaimId::new(ID_B).unwrap(),
+            kind: ClaimKind::Verification,
+            target: vec![ClaimId::new(ID_A).unwrap()],
+            assertion: AssertionForm::Annotation {
+                text: "built".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "builder-none".into(),
+                    session_id: None,
+                    hermeticity: Some(Hermeticity::None),
+                },
+            },
+            anchor: Anchor {
+                tree: TREE.into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log = vec![target, builder_none];
+        let policy = Policy {
+            min_builders: 1,
+            min_hermeticity: HermeticityFloor::Container,
+            ..Policy::permissive("test")
+        };
+        let verdict = evaluate(TREE, &policy, &log).unwrap();
+        assert_eq!(verdict.result, VerdictResult::Fail);
+        assert!(
+            verdict
+                .reasons
+                .iter()
+                .any(|r| r.contains("builder agreement not met: 0 < 1")),
+            "expected hermeticity floor rejection"
+        );
+    }
+
+    #[test]
+    fn scenario_hermeticity_floor_accepts_at_minimum() {
+        let target = make_predicate_claim(ID_A, OriginKind::AgentAsserted, TREE);
+        let builder_container = Claim {
+            id: ClaimId::new(ID_B).unwrap(),
+            kind: ClaimKind::Verification,
+            target: vec![ClaimId::new(ID_A).unwrap()],
+            assertion: AssertionForm::Annotation {
+                text: "built".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "builder-container".into(),
+                    session_id: None,
+                    hermeticity: Some(Hermeticity::Container),
+                },
+            },
+            anchor: Anchor {
+                tree: TREE.into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log = vec![target, builder_container];
+        let policy = Policy {
+            min_builders: 1,
+            min_hermeticity: HermeticityFloor::Container,
+            ..Policy::permissive("test")
+        };
+        let verdict = evaluate(TREE, &policy, &log).unwrap();
+        assert_eq!(verdict.result, VerdictResult::Pass);
     }
 }
