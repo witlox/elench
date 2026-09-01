@@ -1,0 +1,220 @@
+{
+  "kiseki": {
+    "path-range": {
+      "semantic": {
+        "correct": 400,
+        "wrong": 0,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "symbol": {
+      "semantic": {
+        "correct": 400,
+        "wrong": 0,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "content-digest": {
+      "semantic": {
+        "correct": 400,
+        "wrong": 0,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "multi": {
+      "semantic": {
+        "correct": 400,
+        "wrong": 0,
+        "failed": 0,
+        "total": 400
+      }
+    }
+  },
+  "yoyo-evolve": {
+    "path-range": {
+      "semantic": {
+        "correct": 380,
+        "wrong": 0,
+        "failed": 0,
+        "total": 380
+      },
+      "other": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "symbol": {
+      "semantic": {
+        "correct": 380,
+        "wrong": 0,
+        "failed": 0,
+        "total": 380
+      },
+      "other": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "content-digest": {
+      "semantic": {
+        "correct": 380,
+        "wrong": 0,
+        "failed": 0,
+        "total": 380
+      },
+      "other": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "multi": {
+      "semantic": {
+        "correct": 380,
+        "wrong": 0,
+        "failed": 0,
+        "total": 380
+      },
+      "other": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    }
+  },
+  "tokio": {
+    "path-range": {
+      "semantic": {
+        "correct": 399,
+        "wrong": 1,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "symbol": {
+      "semantic": {
+        "correct": 398,
+        "wrong": 2,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "content-digest": {
+      "semantic": {
+        "correct": 399,
+        "wrong": 0,
+        "failed": 1,
+        "total": 400
+      }
+    },
+    "multi": {
+      "semantic": {
+        "correct": 398,
+        "wrong": 2,
+        "failed": 0,
+        "total": 400
+      }
+    }
+  },
+  "cobra": {
+    "path-range": {
+      "semantic": {
+        "correct": 379,
+        "wrong": 1,
+        "failed": 0,
+        "total": 380
+      },
+      "reformat": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "symbol": {
+      "semantic": {
+        "correct": 379,
+        "wrong": 1,
+        "failed": 0,
+        "total": 380
+      },
+      "reformat": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "content-digest": {
+      "semantic": {
+        "correct": 379,
+        "wrong": 0,
+        "failed": 1,
+        "total": 380
+      },
+      "reformat": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    },
+    "multi": {
+      "semantic": {
+        "correct": 379,
+        "wrong": 1,
+        "failed": 0,
+        "total": 380
+      },
+      "reformat": {
+        "correct": 20,
+        "wrong": 0,
+        "failed": 0,
+        "total": 20
+      }
+    }
+  },
+  "httpx": {
+    "path-range": {
+      "semantic": {
+        "correct": 391,
+        "wrong": 8,
+        "failed": 1,
+        "total": 400
+      }
+    },
+    "symbol": {
+      "semantic": {
+        "correct": 391,
+        "wrong": 9,
+        "failed": 0,
+        "total": 400
+      }
+    },
+    "content-digest": {
+      "semantic": {
+        "correct": 391,
+        "wrong": 0,
+        "failed": 9,
+        "total": 400
+      }
+    },
+    "multi": {
+      "semantic": {
+        "correct": 391,
+        "wrong": 9,
+        "failed": 0,
+        "total": 400
+      }
+    }
+  }
+}
