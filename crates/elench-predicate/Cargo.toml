@@ -1,0 +1,18 @@
+[package]
+name = "elench-predicate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "elench-predicate-v1 DSL: parser and evaluator for claim predicates"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+regex = "1"
+
+[lints]
+workspace = true

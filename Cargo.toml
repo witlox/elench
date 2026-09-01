@@ -4,6 +4,7 @@ members = [
     "crates/elench",
     "crates/elench-claim",
     "crates/elench-envelope",
+    "crates/elench-predicate",
     "crates/elench-store",
     "crates/elench-gate",
 ]
@@ -23,3 +24,5 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+
+[workspace.dependencies]
