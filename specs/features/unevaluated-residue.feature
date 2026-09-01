@@ -35,3 +35,13 @@ Feature: Unevaluated is a first-class status
     When the record is validated
     Then it must contain a non-empty target array naming the accepted gaps
     And a record with an empty target array is rejected
+
+  Scenario: A corrupt claim cascades to unevaluated dependents
+    Given a claim log with claims cl_a, cl_b, cl_c
+    And cl_b dependsOn [cl_a] and cl_c dependsOn [cl_b]
+    When cl_a becomes corrupt (unreadable in the store)
+    Then cl_a's computed status is "unevaluated" (corrupt — cannot read)
+    And cl_b's computed status is "unevaluated" (depends on corrupt claim)
+    And cl_c's computed status is "unevaluated" (cascading from cl_b)
+    And the status report marks them as "unevaluated: corrupt" not "unevaluated: no one checked"
+    And the gate may fail if "unevaluated: corrupt" exceeds the residue bound

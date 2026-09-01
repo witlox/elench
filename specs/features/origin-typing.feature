@@ -21,6 +21,18 @@ Feature: Origin is a type, not a label
     Then the claim is rejected
     And the rejection reason includes "only harness may emit verification"
 
+  Scenario: A human cannot emit verification records
+    Given a human attempting to emit a claim with kind = "verification"
+    When the claim is submitted to the validator
+    Then the claim is rejected
+    And the rejection reason includes "only harness may emit verification"
+
+  Scenario: A harness cannot emit residue-acceptance records
+    Given a harness attempting to emit a claim with kind = "residue-acceptance"
+    When the claim is submitted to the validator
+    Then the claim is rejected
+    And the rejection reason includes "only human may emit residue-acceptance"
+
   Scenario: A human-asserted claim is distinct from an agent-asserted claim
     Given a claim log with one human-asserted claim and one agent-asserted claim
     When the log is queried for claims with origin.kind = "human-asserted"

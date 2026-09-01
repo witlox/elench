@@ -29,3 +29,23 @@ Feature: Claim revocation without tree mutation
     Then re-evaluating the gate for (T, P) now fails
     And no byte of D was changed
     And no re-signing occurred
+
+  Scenario: Falsifying a verification reverts the target to unevaluated
+    Given claim cl_a with computed status "passed" via verification cl_v
+    When a falsification cl_fv targets cl_v (the verification, not cl_a)
+    Then cl_v's computed status is "falsified"
+    And cl_a's computed status reverts to "unevaluated" (no valid verification remains)
+    And cl_a's original claim content is byte-identical to before
+
+  Scenario: Falsifying a falsification reverts the target to its previous status
+    Given claim cl_a with computed status "falsified" via falsification cl_f1
+    When a falsification cl_f2 targets cl_f1 (the falsification, not cl_a)
+    Then cl_f1's computed status is "falsified"
+    And cl_a's computed status reverts to its previous status ("unevaluated" or "passed")
+    And the revert is recursive — cl_a's dependents also revert
+
+  Scenario: A falsification that changes no status is rejected
+    Given claim cl_x with computed status "falsified"
+    When an agent emits a new falsification targeting cl_x
+    Then the new falsification is rejected
+    And the rejection reason includes "falsification changes no status — target already falsified"

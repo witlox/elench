@@ -35,3 +35,16 @@ Feature: Claim emission
     When the claim is stored
     Then the claim's dependsOn field contains [cl_a3f..., cl_91c...]
     And the blast radius from any falsification of cl_a3f... includes this claim
+
+  Scenario: A claim with cyclic dependsOn is rejected
+    Given a claim log containing claim cl_a with dependsOn [cl_b]
+    And claim cl_b with dependsOn [cl_a]
+    When an agent emits a new claim cl_c with dependsOn [cl_a, cl_c]
+    Then cl_c is rejected by the validator
+    And the rejection reason includes "cyclic dependency"
+
+  Scenario: A claim with empty dependsOn is accepted with a warning
+    Given an agent emits an assertion claim with no dependsOn
+    When the claim is validated
+    Then the claim is accepted
+    And a warning is emitted: "dependsOn is empty — claim asserts it was reached from nothing"

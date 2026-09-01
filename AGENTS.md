@@ -15,7 +15,7 @@ passed.
 | Language | Rust (edition 2024, MSRV 1.85) |
 | License | MIT |
 | Crate count | 5 (elench, elench-claim, elench-envelope, elench-store, elench-gate) |
-| Spec count | 7 feature files, 28 invariants (1 removed), 20 assumptions, 11 failure modes |
+| Spec count | 7 feature files, 44 scenarios, 28 invariants (1 removed), 20 assumptions, 11 failure modes |
 | ADR count | 7 (0001–0007; 0000 is template) |
 | Experiment count | 3 (E0 not run, E1 not run, E2 not run) |
 | Fidelity | All invariants NONE. First milestone: validator (ADR-0006). |

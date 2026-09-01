@@ -44,12 +44,12 @@ should be written at all.
 
 | Feature | Scenarios | Depth | Notes |
 |---------|-----------|-------|-------|
-| claim-emission | 5 | NONE | No code |
-| claim-revocation | 4 | NONE | No code |
-| origin-typing | 4 | NONE | No code |
-| release-gate | 6 | NONE | No code |
+| claim-emission | 7 | NONE | No code |
+| claim-revocation | 7 | NONE | No code |
+| origin-typing | 6 | NONE | No code |
+| release-gate | 9 | NONE | No code |
 | anchor-resolution | 5 | NONE | No code |
-| unevaluated-residue | 5 | NONE | No code |
+| unevaluated-residue | 6 | NONE | No code |
 | git-projection | 4 | NONE | No code; ADR-0002/0007 |
 
 ## Experiments (research, not test depth)

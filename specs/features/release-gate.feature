@@ -41,3 +41,26 @@ Feature: Release gate is a predicate over claims
     And the gate is re-evaluated for the same (T, P)
     Then the gate now fails
     And no byte of D was changed and no re-signing occurred
+
+  Scenario: Empty store: gate passes with no claims
+    Given an elench store with zero claims and zero trees
+    When the release gate is evaluated for any tree under policy P
+    Then the gate passes
+    And the verdict contains no failure reasons
+    And condition 4 (builder agreement) is not evaluated when there are no claims
+
+  Scenario: Single claim: gate evaluates correctly
+    Given an elench store with one tree T and one unevaluated claim about T
+    And a release policy P that allows 1 unevaluated claim
+    When the release gate is evaluated for tree T under policy P
+    Then the gate passes
+    And the blast radius from that single claim is itself (no dependents)
+
+  Scenario: Two contradictory predicates: gate passes (known limitation)
+    Given a tree T with two unevaluated agent-asserted predicates
+    And the predicates are contradictory: "parse('') == Err(EmptyInput)" and "parse('') == Ok(DefaultValue)"
+    And a release policy P that allows agent-asserted claims and 2 unevaluated claims
+    When the release gate is evaluated for tree T under policy P
+    Then the gate passes
+    And the gate does not detect logical inconsistency among unevaluated claims
+    And this is a known limitation (FM-P2-02): contradictory unevaluated claims are invisible to the gate
