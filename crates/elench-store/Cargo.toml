@@ -10,6 +10,10 @@ description = "Content-addressed store: the elench substrate (blobs, trees, clai
 
 [dependencies]
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+elench-claim = { path = "../elench-claim" }
 
 [lints]
 workspace = true

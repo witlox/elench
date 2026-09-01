@@ -107,6 +107,10 @@ dependencies = [
 name = "elench-store"
 version = "0.0.1"
 dependencies = [
+ "elench-claim",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror",
 ]
 
