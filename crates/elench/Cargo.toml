@@ -17,6 +17,8 @@ elench-claim = { path = "../elench-claim" }
 elench-envelope = { path = "../elench-envelope" }
 elench-store = { path = "../elench-store" }
 elench-gate = { path = "../elench-gate" }
+elench-predicate = { path = "../elench-predicate" }
+elench-projection = { path = "../elench-projection" }
 
 [lints]
 workspace = true

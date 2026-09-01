@@ -62,6 +62,8 @@ dependencies = [
  "elench-claim",
  "elench-envelope",
  "elench-gate",
+ "elench-predicate",
+ "elench-projection",
  "elench-store",
 ]
 
