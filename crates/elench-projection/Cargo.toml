@@ -1,0 +1,18 @@
+[package]
+name = "elench-projection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Git projection — deterministic synthesis of git objects from the claim log"
+
+[dependencies]
+elench-claim = { path = "../elench-claim" }
+elench-store = { path = "../elench-store" }
+thiserror = "2"
+sha2 = "0.10"
+
+[lints]
+workspace = true

@@ -108,6 +108,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "elench-projection"
+version = "0.0.1"
+dependencies = [
+ "elench-claim",
+ "elench-store",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "elench-store"
 version = "0.0.1"
 dependencies = [

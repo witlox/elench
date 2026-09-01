@@ -4,9 +4,10 @@ members = [
     "crates/elench",
     "crates/elench-claim",
     "crates/elench-envelope",
-    "crates/elench-predicate",
-    "crates/elench-store",
     "crates/elench-gate",
+    "crates/elench-predicate",
+    "crates/elench-projection",
+    "crates/elench-store",
 ]
 
 [workspace.package]
