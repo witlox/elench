@@ -65,6 +65,8 @@ dependencies = [
  "elench-predicate",
  "elench-projection",
  "elench-store",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
