@@ -12,6 +12,8 @@ description = "DSSE envelopes carrying in-toto statements"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+sha2 = "0.10"
+elench-claim = { path = "../elench-claim" }
 
 [lints]
 workspace = true
