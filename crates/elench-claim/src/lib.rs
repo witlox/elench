@@ -14,6 +14,7 @@
 
 use std::collections::HashSet;
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -23,7 +24,8 @@ use thiserror::Error;
 
 /// Claim identifier. SHA-256 hash with a `cl_` prefix (67 chars total).
 /// Pattern: `^cl_[0-9a-f]{64}$`. Never reassigned (R1, INV-03).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ClaimId(String);
 
 impl ClaimId {
@@ -81,7 +83,8 @@ pub struct ParseClaimIdError(pub String);
 // ---------------------------------------------------------------------------
 
 /// Claim kind (from `schema/claim.schema.json`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ClaimKind {
     Assertion,
     Falsification,
@@ -91,7 +94,8 @@ pub enum ClaimKind {
 }
 
 /// Assertion form.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "form", rename_all = "kebab-case")]
 pub enum AssertionForm {
     /// Machine-checkable, can gate. Must have an executable expression.
     Predicate { expression: Expression },
@@ -100,38 +104,44 @@ pub enum AssertionForm {
 }
 
 /// Predicate expression (ADR-0004: `elench-predicate-v1`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Expression {
     /// Must be `"elench-predicate-v1"` (or a known successor).
     pub language: String,
     /// DSL source string.
     pub source: String,
     /// SHA-256 of the source, for deduplication (INV-28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }
 
 /// Origin: who produced this claim.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Origin {
+    #[serde(rename = "kind")]
     pub kind: OriginKind,
     pub producer: Producer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum OriginKind {
     HarnessObserved,
     AgentAsserted,
     HumanAsserted,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Producer {
     pub id: String,
+    #[serde(rename = "sessionId", default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hermeticity: Option<Hermeticity>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Hermeticity {
     None,
     Container,
@@ -140,19 +150,28 @@ pub enum Hermeticity {
 }
 
 /// Anchor: how a claim points at code within a tree.
-/// UNRESOLVED — E1 determines which strategy survives.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// E1: multi is the default strategy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Anchor {
     /// elench tree OID (ADR-0001). Not a git commit OID.
     pub tree: String,
     pub strategy: AnchorStrategy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range: Option<[i64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
+    #[serde(
+        rename = "contentDigest",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub content_digest: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum AnchorStrategy {
     PathRange,
     Symbol,
@@ -161,15 +180,19 @@ pub enum AnchorStrategy {
 }
 
 /// Evidence observed by the harness.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Evidence {
     pub kind: EvidenceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
+    #[serde(rename = "exitCode", default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum EvidenceKind {
     ProcessExit,
     TestReport,
@@ -178,10 +201,11 @@ pub enum EvidenceKind {
 }
 
 /// A signed assertion about a tree (aggregate root).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Claim {
     pub id: ClaimId,
     pub kind: ClaimKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target: Vec<ClaimId>,
     pub assertion: AssertionForm,
     pub origin: Origin,
@@ -189,13 +213,16 @@ pub struct Claim {
     /// Unix epoch seconds. Set by producer at emission.
     /// Used by ADR-0007 for deterministic git commit synthesis.
     pub timestamp: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<Evidence>,
     /// Premises. Transitive closure IS the blast radius.
+    #[serde(rename = "dependsOn", default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<ClaimId>,
 }
 
 /// Computed status (not stored). INV-04.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ClaimStatus {
     /// No verification or falsification record targets this claim.
     Unevaluated,
@@ -214,13 +241,13 @@ pub enum ClaimStatus {
 /// Identity of the key that signed the DSSE envelope, with its known
 /// entity type. The validator cross-checks this against
 /// `claim.origin.kind` to prevent forgery.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignerIdentity {
     pub key_id: String,
     pub entity: SignerEntity,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignerEntity {
     Harness,
     Agent,
@@ -1816,5 +1843,116 @@ mod tests {
         let oid1 = ClaimId::from_content(&claim1);
         let oid2 = ClaimId::from_content(&claim2);
         assert_ne!(oid1, oid2, "different claims must have different OIDs");
+    }
+
+    // --- Serde round-trip tests ---
+
+    #[test]
+    fn scenario_serde_claim_round_trip() {
+        let claim = make_predicate_claim(
+            "cl_0000000000000000000000000000000000000000000000000000000000000042",
+            "exists(\"Cargo.toml\")",
+            OriginKind::AgentAsserted,
+        );
+        let json = serde_json::to_string(&claim).unwrap();
+        let decoded: Claim = serde_json::from_str(&json).unwrap();
+        assert_eq!(claim, decoded);
+    }
+
+    #[test]
+    fn scenario_serde_claim_with_evidence_round_trip() {
+        let mut claim = make_claim(
+            "cl_0000000000000000000000000000000000000000000000000000000000000043",
+            ClaimKind::Assertion,
+            OriginKind::AgentAsserted,
+        );
+        claim.evidence = vec![Evidence {
+            kind: EvidenceKind::ProcessExit,
+            digest: Some("abc123".into()),
+            exit_code: Some(0),
+            uri: None,
+        }];
+        let json = serde_json::to_string(&claim).unwrap();
+        let decoded: Claim = serde_json::from_str(&json).unwrap();
+        assert_eq!(claim, decoded);
+    }
+
+    #[test]
+    fn scenario_serde_claim_with_depends_on_round_trip() {
+        let mut claim = make_claim(
+            "cl_0000000000000000000000000000000000000000000000000000000000000044",
+            ClaimKind::Assertion,
+            OriginKind::AgentAsserted,
+        );
+        claim.depends_on = vec![
+            ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000099")
+                .unwrap(),
+            ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000098")
+                .unwrap(),
+        ];
+        let json = serde_json::to_string(&claim).unwrap();
+        let decoded: Claim = serde_json::from_str(&json).unwrap();
+        assert_eq!(claim, decoded);
+    }
+
+    #[test]
+    fn scenario_serde_falsification_round_trip() {
+        let claim = Claim {
+            id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000045")
+                .unwrap(),
+            kind: ClaimKind::Falsification,
+            target: vec![
+                ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000099")
+                    .unwrap(),
+            ],
+            assertion: AssertionForm::Annotation {
+                text: "wrong".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: Some(Hermeticity::Container),
+                },
+            },
+            anchor: Anchor {
+                tree: "t".into(),
+                strategy: AnchorStrategy::Multi,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let json = serde_json::to_string(&claim).unwrap();
+        let decoded: Claim = serde_json::from_str(&json).unwrap();
+        assert_eq!(claim, decoded);
+    }
+
+    #[test]
+    fn scenario_serde_claim_json_keys_match_schema() {
+        let claim = make_claim(
+            "cl_0000000000000000000000000000000000000000000000000000000000000046",
+            ClaimKind::Assertion,
+            OriginKind::AgentAsserted,
+        );
+        let json = serde_json::to_string(&claim).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let obj = v.as_object().unwrap();
+        // Required keys per schema
+        assert!(obj.contains_key("id"));
+        assert!(obj.contains_key("kind"));
+        assert!(obj.contains_key("assertion"));
+        assert!(obj.contains_key("origin"));
+        assert!(obj.contains_key("anchor"));
+        assert!(obj.contains_key("timestamp"));
+        // Optional keys should be absent when empty
+        assert!(!obj.contains_key("target") || obj["target"].as_array().unwrap().is_empty());
+        assert!(!obj.contains_key("evidence") || obj["evidence"].as_array().unwrap().is_empty());
+        assert!(!obj.contains_key("dependsOn") || obj["dependsOn"].as_array().unwrap().is_empty());
     }
 }
