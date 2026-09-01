@@ -92,6 +92,8 @@ name = "elench-gate"
 version = "0.0.1"
 dependencies = [
  "elench-claim",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 
