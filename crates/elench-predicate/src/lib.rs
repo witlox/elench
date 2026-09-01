@@ -51,6 +51,16 @@ pub enum Expression {
     Or(Box<Expression>, Box<Expression>),
     /// Boolean NOT.
     Not(Box<Expression>),
+    /// String method: `left.contains(right)`.
+    StringContains {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    /// String method: `left.matches(right)` (regex match).
+    StringMatches {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
 }
 
 /// Result fields accessible via `.` notation.
@@ -152,6 +162,8 @@ pub enum EvalError {
     CommandExec(String),
     #[error("unknown field: {0}")]
     UnknownField(String),
+    #[error("invalid regex: {0}")]
+    InvalidRegex(#[from] regex::Error),
 }
 
 // ---------------------------------------------------------------------------
@@ -432,30 +444,22 @@ impl<'a> Parser<'a> {
                 Some(Token::Ident(name)) if name == "exit" => FieldName::Exit,
                 Some(Token::Ident(name)) if name == "stdout" => FieldName::Stdout,
                 Some(Token::Ident(name)) if name == "contains" => {
-                    // `.contains(str)` — string method, parse as special
-                    // We model .contains(x) as: this == str_contains_check
-                    // For simplicity in v1, we parse .contains("x") and
-                    // .matches(/x/) as separate expression kinds.
                     self.expect_lparen()?;
                     let arg = self.parse_primitive()?;
                     self.expect_rparen()?;
-                    // Create a Contains expression by wrapping
-                    expr = Expression::Field {
-                        expr: Box::new(expr),
-                        field: FieldName::Passed, // placeholder, handled below
-                    };
-                    // Actually, let's model .contains and .matches as
-                    // comparison operations. For v1 simplicity, we treat
-                    // `str.contains("x")` as a parsed form.
-                    // This is a known simplification — the evaluator
-                    // handles it.
-                    return Ok(make_string_method(expr, arg, StringMethod::Contains));
+                    return Ok(Expression::StringContains {
+                        left: Box::new(expr),
+                        right: Box::new(arg),
+                    });
                 }
                 Some(Token::Ident(name)) if name == "matches" => {
                     self.expect_lparen()?;
                     let arg = self.parse_primitive()?;
                     self.expect_rparen()?;
-                    return Ok(make_string_method(expr, arg, StringMethod::Matches));
+                    return Ok(Expression::StringMatches {
+                        left: Box::new(expr),
+                        right: Box::new(arg),
+                    });
                 }
                 Some(other) => {
                     return Err(ParseError::Expected {
@@ -477,7 +481,7 @@ impl<'a> Parser<'a> {
     fn parse_primitive(&mut self) -> Result<Expression, ParseError> {
         match self.advance() {
             Some(Token::Int(n)) => Ok(Expression::Int(*n)),
-            Some(Token::Str(s)) => Ok(Expression::Str(s.clone())),
+            Some(Token::Str(s) | Token::Regex(s)) => Ok(Expression::Str(s.clone())),
             Some(Token::Ident(name)) if name == "true" => Ok(Expression::Bool(true)),
             Some(Token::Ident(name)) if name == "false" => Ok(Expression::Bool(false)),
             Some(Token::Ident(name)) if name == "grep" => {
@@ -581,23 +585,6 @@ impl<'a> Parser<'a> {
             }),
         }
     }
-}
-
-/// String method type for `.contains()` and `.matches()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StringMethod {
-    Contains,
-    Matches,
-}
-
-/// Create a string-method expression. This is a simplification for v1:
-/// we model `.contains(x)` and `.matches(x)` as a comparison on the
-/// string result.
-fn make_string_method(_expr: Expression, _arg: Expression, _method: StringMethod) -> Expression {
-    // For v1, we store these as Bool(false) placeholders.
-    // A full implementation would model these as dedicated expression
-    // variants. This is a known gap — the evaluator and tests document it.
-    Expression::Bool(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +736,31 @@ pub fn evaluate(expr: &Expression, ctx: &EvalContext) -> Result<Value, EvalError
                 .as_bool()
                 .ok_or(EvalError::ExpectedBool(Value::Bool(false)))?;
             Ok(Value::Bool(!v))
+        }
+
+        Expression::StringContains { left, right } => {
+            let lv = evaluate(left, ctx)?
+                .as_str()
+                .ok_or(EvalError::ExpectedStr(Value::Bool(false)))?
+                .to_string();
+            let rv = evaluate(right, ctx)?
+                .as_str()
+                .ok_or(EvalError::ExpectedStr(Value::Bool(false)))?
+                .to_string();
+            Ok(Value::Bool(lv.contains(&rv)))
+        }
+
+        Expression::StringMatches { left, right } => {
+            let lv = evaluate(left, ctx)?
+                .as_str()
+                .ok_or(EvalError::ExpectedStr(Value::Bool(false)))?
+                .to_string();
+            let rv = evaluate(right, ctx)?
+                .as_str()
+                .ok_or(EvalError::ExpectedStr(Value::Bool(false)))?
+                .to_string();
+            let re = Regex::new(&rv)?;
+            Ok(Value::Bool(re.is_match(&lv)))
         }
     }
 }
@@ -946,9 +958,11 @@ mod tests {
 
     #[test]
     fn scenario_round_trip_grep_predicate() {
-        let source = r#"grep(/foo/, "src/main.rs") >= 2"#;
-        let expr = parse(source).unwrap();
-        let _ = evaluate(&expr, &ctx()); // should not panic
+        let tmp = tempfile_named("round_trip.txt", "foo\nbar\n");
+        let source = format!(r#"grep(/foo/, "{}") >= 1"#, tmp.to_str().unwrap());
+        let expr = parse(&source).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
@@ -965,16 +979,39 @@ mod tests {
         assert_eq!(result, Value::Bool(true)); // this repo has Cargo.toml with "elench"
     }
 
-    // --- INV-08: predicate without expression rejected ---
+    // --- .contains() and .matches() tests (GAP-3) ---
 
     #[test]
-    fn scenario_inv08_prose_rejected() {
-        // The parser rejects free-form prose — it must be a valid DSL
-        // expression. "Input validation is now handled correctly." is
-        // not a valid expression.
-        let result = parse("Input validation is now handled correctly.");
-        assert!(result.is_err(), "prose in predicate slot must be rejected");
+    fn scenario_string_contains_true() {
+        let expr = parse(r#""hello world".contains("world")"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
     }
+
+    #[test]
+    fn scenario_string_contains_false() {
+        let expr = parse(r#""hello world".contains("xyz")"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn scenario_string_matches_true() {
+        let expr = parse(r#""hello world".matches(/hello/)"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_string_matches_false() {
+        let expr = parse(r#""hello world".matches(/xyz/)"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    // --- INV-08: predicate without expression rejected ---
+    // (scenario_parser_prose_in_predicate_slot_rejected above already
+    // covers this; the duplicate test was removed per auditor GAP-15.)
 
     /// Create a temporary file with the given content, return its path.
     fn tempfile_named(name: &str, content: &str) -> PathBuf {

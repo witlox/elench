@@ -265,15 +265,21 @@ pub enum ValidationError {
 
     #[error("schema validation failed: {0}")]
     SchemaViolation(String),
+
+    #[error("status computation error: {0}")]
+    Status(#[from] StatusError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum StatusError {
     #[error("claim {0} not found in log")]
     ClaimNotFound(String),
 
     #[error("log is corrupt: {0}")]
     CorruptLog(String),
+
+    #[error("cyclic dependency detected in targeting graph: {0}")]
+    CyclicDependency(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +346,7 @@ pub fn validate_claim(
     // is already falsified, the new falsification is noise.
     if claim.kind == ClaimKind::Falsification || claim.kind == ClaimKind::Supersession {
         for target_id in &claim.target {
-            let target_status = compute_status(target_id, log);
+            let target_status = compute_status(target_id, log)?;
             if target_status == ClaimStatus::Falsified {
                 return Err(ValidationError::FalsificationChangesNoStatus(
                     target_id.to_string(),
@@ -421,40 +427,73 @@ fn dep_transitively_depends_on(
 /// `Unevaluated`. If a falsification record is itself falsified, the
 /// target reverts to its previous status.
 ///
+/// INV-29: cycle detection via a visited set prevents infinite
+/// recursion. If a cycle is detected in the targeting graph, returns
+/// [`StatusError::CyclicDependency`].
+///
 /// # Errors
 ///
-/// Returns [`StatusError`] if the log is corrupt.
-#[must_use]
-pub fn compute_status(claim_id: &ClaimId, log: &[Claim]) -> ClaimStatus {
+/// Returns [`StatusError`] if a cycle is detected in the targeting graph.
+pub fn compute_status(claim_id: &ClaimId, log: &[Claim]) -> Result<ClaimStatus, StatusError> {
+    let mut visited = HashSet::new();
+    compute_status_inner(claim_id, log, &mut visited)
+}
+
+fn compute_status_inner(
+    claim_id: &ClaimId,
+    log: &[Claim],
+    visited: &mut HashSet<ClaimId>,
+) -> Result<ClaimStatus, StatusError> {
+    // INV-29: cycle detection. If we've already visited this claim
+    // in the current recursion, we have a cycle. Return Falsified
+    // as a conservative default — a cycle in the targeting graph
+    // means we cannot determine the true status.
+    if !visited.insert(claim_id.clone()) {
+        return Err(StatusError::CyclicDependency(claim_id.to_string()));
+    }
+
     // Find all claims that target this one.
     let targeting: Vec<&Claim> = log.iter().filter(|c| c.target.contains(claim_id)).collect();
 
     if targeting.is_empty() {
-        return ClaimStatus::Unevaluated;
+        return Ok(ClaimStatus::Unevaluated);
     }
 
     // Check for active falsifications (falsification or supersession
     // that has not itself been falsified).
-    let has_active_falsification = targeting.iter().any(|c| {
-        (c.kind == ClaimKind::Falsification || c.kind == ClaimKind::Supersession)
-            && compute_status(&c.id, log) != ClaimStatus::Falsified
-    });
+    let mut has_active_falsification = false;
+    for c in &targeting {
+        if c.kind == ClaimKind::Falsification || c.kind == ClaimKind::Supersession {
+            let c_status = compute_status_inner(&c.id, log, visited)?;
+            if c_status != ClaimStatus::Falsified {
+                has_active_falsification = true;
+                break;
+            }
+        }
+    }
 
     if has_active_falsification {
-        return ClaimStatus::Falsified;
+        return Ok(ClaimStatus::Falsified);
     }
 
     // Check for active verifications (verification that has not been
     // falsified).
-    let has_active_verification = targeting.iter().any(|c| {
-        c.kind == ClaimKind::Verification && compute_status(&c.id, log) != ClaimStatus::Falsified
-    });
-
-    if has_active_verification {
-        return ClaimStatus::Passed;
+    let mut has_active_verification = false;
+    for c in &targeting {
+        if c.kind == ClaimKind::Verification {
+            let c_status = compute_status_inner(&c.id, log, visited)?;
+            if c_status != ClaimStatus::Falsified {
+                has_active_verification = true;
+                break;
+            }
+        }
     }
 
-    ClaimStatus::Unevaluated
+    if has_active_verification {
+        return Ok(ClaimStatus::Passed);
+    }
+
+    Ok(ClaimStatus::Unevaluated)
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +560,10 @@ fn canonical_json(claim: &Claim) -> String {
     map.insert("origin".into(), claim.origin_json());
     map.insert("anchor".into(), claim.anchor_json());
     map.insert("timestamp".into(), serde_json::json!(claim.timestamp));
-    map.insert("evidence".into(), serde_json::json!(claim.evidence.len()));
+    map.insert(
+        "evidence".into(),
+        serde_json::json!(claim.evidence.iter().map(evidence_json).collect::<Vec<_>>()),
+    );
     map.insert(
         "dependsOn".into(),
         serde_json::json!(
@@ -610,8 +652,21 @@ impl Claim {
     }
 }
 
-// ---------------------------------------------------------------------------
-// hex encoding (avoid pulling in a hex crate)
+/// Serialize a single evidence item to canonical JSON.
+fn evidence_json(ev: &Evidence) -> serde_json::Value {
+    serde_json::json!({
+        "kind": match ev.kind {
+            EvidenceKind::ProcessExit => "process-exit",
+            EvidenceKind::TestReport => "test-report",
+            EvidenceKind::ArtifactDigest => "artifact-digest",
+            EvidenceKind::ExternalAttestation => "external-attestation",
+        },
+        "digest": ev.digest,
+        "exitCode": ev.exit_code,
+        "uri": ev.uri,
+    })
+}
+
 // ---------------------------------------------------------------------------
 
 #[must_use]
@@ -1149,7 +1204,10 @@ mod tests {
             OriginKind::AgentAsserted,
         );
         let log = vec![claim.clone()];
-        assert_eq!(compute_status(&claim.id, &log), ClaimStatus::Unevaluated);
+        assert_eq!(
+            compute_status(&claim.id, &log).unwrap(),
+            ClaimStatus::Unevaluated
+        );
     }
 
     #[test]
@@ -1186,7 +1244,10 @@ mod tests {
             depends_on: vec![],
         };
         let log = vec![target.clone(), verification];
-        assert_eq!(compute_status(&target.id, &log), ClaimStatus::Passed);
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Passed
+        );
     }
 
     #[test]
@@ -1218,7 +1279,10 @@ mod tests {
             depends_on: vec![],
         };
         let log = vec![target.clone(), falsification];
-        assert_eq!(compute_status(&target.id, &log), ClaimStatus::Falsified);
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Falsified
+        );
     }
 
     #[test]
@@ -1250,7 +1314,10 @@ mod tests {
             depends_on: vec![],
         };
         let log = vec![target.clone(), supersession];
-        assert_eq!(compute_status(&target.id, &log), ClaimStatus::Falsified);
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Falsified
+        );
     }
 
     #[test]
@@ -1304,7 +1371,10 @@ mod tests {
         };
         let log = vec![target.clone(), verification, falsification_of_verification];
         // Target's verification was falsified -> reverts to unevaluated
-        assert_eq!(compute_status(&target.id, &log), ClaimStatus::Unevaluated);
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Unevaluated
+        );
     }
 
     #[test]
@@ -1362,7 +1432,179 @@ mod tests {
             falsification_of_falsification,
         ];
         // The falsification was itself falsified -> target reverts to unevaluated
-        assert_eq!(compute_status(&target.id, &log), ClaimStatus::Unevaluated);
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Unevaluated
+        );
+    }
+
+    #[test]
+    fn scenario_status_reverts_to_passed_when_falsification_falsified() {
+        // GAP-6: test revert to Passed (not just Unevaluated).
+        // Target is verified (Passed). Falsification falsifies the target.
+        // Then a second falsification falsifies the first one.
+        // The target should revert to Passed (its previous status).
+        let target = make_claim(
+            "cl_0000000000000000000000000000000000000000000000000000000000000030",
+            ClaimKind::Assertion,
+            OriginKind::AgentAsserted,
+        );
+        let verification = Claim {
+            id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000031")
+                .unwrap(),
+            kind: ClaimKind::Verification,
+            target: vec![target.id.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "verified".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: target.anchor.clone(),
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let falsification = Claim {
+            id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000032")
+                .unwrap(),
+            kind: ClaimKind::Falsification,
+            target: vec![target.id.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "wrong".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: target.anchor.clone(),
+            timestamp: 1_700_000_002,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let falsification_of_falsification = Claim {
+            id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000033")
+                .unwrap(),
+            kind: ClaimKind::Falsification,
+            target: vec![falsification.id.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "falsification was wrong".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: target.anchor.clone(),
+            timestamp: 1_700_000_003,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log = vec![
+            target.clone(),
+            verification,
+            falsification,
+            falsification_of_falsification,
+        ];
+        // Target was Passed -> falsified -> falsification falsified -> revert to Passed
+        assert_eq!(
+            compute_status(&target.id, &log).unwrap(),
+            ClaimStatus::Passed
+        );
+    }
+
+    #[test]
+    fn scenario_compute_status_cycle_returns_error() {
+        // GAP-1: compute_status with cyclic targeting returns error, not panic.
+        let id_a =
+            ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000034")
+                .unwrap();
+        let id_b =
+            ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000035")
+                .unwrap();
+
+        let claim_a = Claim {
+            id: id_a.clone(),
+            kind: ClaimKind::Verification,
+            target: vec![id_b.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "a verifies b".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "t".into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let claim_b = Claim {
+            id: id_b.clone(),
+            kind: ClaimKind::Verification,
+            target: vec![id_a.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "b verifies a".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "t".into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log = vec![claim_a, claim_b];
+        // Should return error, not panic
+        let result = compute_status(&id_a, &log);
+        assert!(
+            matches!(result, Err(StatusError::CyclicDependency(_))),
+            "expected CyclicDependency error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn scenario_compute_status_empty_log() {
+        // GAP-7: empty log returns Unevaluated.
+        let id =
+            ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000036")
+                .unwrap();
+        assert_eq!(compute_status(&id, &[]).unwrap(), ClaimStatus::Unevaluated);
     }
 
     // --- Blast radius ---
