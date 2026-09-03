@@ -19,6 +19,7 @@ elench-store = { path = "../elench-store" }
 elench-gate = { path = "../elench-gate" }
 elench-predicate = { path = "../elench-predicate" }
 elench-projection = { path = "../elench-projection" }
+elench-anchor = { path = "../elench-anchor" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

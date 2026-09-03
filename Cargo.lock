@@ -122,6 +122,7 @@ dependencies = [
 name = "elench"
 version = "0.0.1"
 dependencies = [
+ "elench-anchor",
  "elench-claim",
  "elench-envelope",
  "elench-gate",
@@ -130,6 +131,14 @@ dependencies = [
  "elench-store",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "elench-anchor"
+version = "0.0.1"
+dependencies = [
+ "elench-claim",
+ "thiserror",
 ]
 
 [[package]]

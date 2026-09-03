@@ -17,6 +17,7 @@
 //! The tree is an elench tree OID (ADR-0001), not a git commit.
 
 use elench_claim::{Claim, ClaimId, ClaimKind, ClaimStatus, OriginKind};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,88 @@ pub struct Verdict {
 pub enum VerdictResult {
     Pass,
     Fail,
+}
+
+// ---------------------------------------------------------------------------
+// Artifact — INV-15: carries (tree, policy), not a verdict
+// ---------------------------------------------------------------------------
+
+/// An elench release artifact. Carries a pointer to `(tree, policy)`,
+/// NOT a verdict. Consumers re-evaluate the gate at consumption time.
+///
+/// INV-15: The artifact does not carry a pass/fail verdict. If a
+/// load-bearing claim is falsified after release, the artifact's
+/// status changes with no byte moving and no re-signing (R4).
+///
+/// The artifact is serialized as JSON and can be distributed
+/// independently of the claim log. Anyone with the artifact and
+/// the claim log can re-evaluate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Artifact {
+    /// The elench tree OID this artifact was built from.
+    pub tree: String,
+    /// The policy name under which the artifact was released.
+    pub policy: String,
+    /// SHA-256 digest of the artifact (e.g., binary, container image).
+    /// This is what condition 4 (builder agreement) checks: K
+    /// independent producers have signed statements with this
+    /// digest as the subject.
+    pub digest: String,
+    /// Unix epoch seconds. Set by the producer at release time.
+    /// NOT a verdict — consumers re-evaluate.
+    pub released_at: i64,
+    /// Human-readable description of the artifact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl Artifact {
+    /// Create a new artifact. Does NOT evaluate the gate — the
+    /// artifact carries `(tree, policy)`, not a verdict (INV-15).
+    #[must_use]
+    pub fn new(
+        tree: impl Into<String>,
+        policy: impl Into<String>,
+        digest: impl Into<String>,
+        released_at: i64,
+    ) -> Self {
+        Self {
+            tree: tree.into(),
+            policy: policy.into(),
+            digest: digest.into(),
+            released_at,
+            description: None,
+        }
+    }
+
+    /// Re-evaluate the gate for this artifact at consumption time.
+    /// This is the core of R4: the artifact's acceptability is a
+    /// live evaluation, not a signature frozen at release time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GateError`] if evaluation fails.
+    pub fn evaluate(&self, policy: &Policy, log: &[Claim]) -> Result<Verdict, GateError> {
+        evaluate(&self.tree, policy, log)
+    }
+
+    /// Serialize to JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `serde_json` error if serialization fails.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserialize from JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `serde_json` error if deserialization fails.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -917,5 +1000,87 @@ mod tests {
         };
         let verdict = evaluate(TREE, &policy, &log).unwrap();
         assert_eq!(verdict.result, VerdictResult::Pass);
+    }
+
+    // --- Artifact (INV-15) ---
+
+    #[test]
+    fn scenario_artifact_carries_tree_and_policy_not_verdict() {
+        let artifact = Artifact::new(TREE, "test-policy", "abc123def456", 1_700_000_000);
+        assert_eq!(artifact.tree, TREE);
+        assert_eq!(artifact.policy, "test-policy");
+        assert_eq!(artifact.digest, "abc123def456");
+        assert_eq!(artifact.released_at, 1_700_000_000);
+        // No verdict field — INV-15
+        let json = artifact.to_json().unwrap();
+        assert!(!json.contains("verdict"));
+        assert!(!json.contains("result"));
+        assert!(!json.contains("pass"));
+        assert!(!json.contains("fail"));
+    }
+
+    #[test]
+    fn scenario_artifact_json_round_trip() {
+        let artifact = Artifact::new(TREE, "test-policy", "abc123", 1_700_000_000);
+        let json = artifact.to_json().unwrap();
+        let decoded = Artifact::from_json(&json).unwrap();
+        assert_eq!(artifact, decoded);
+    }
+
+    #[test]
+    fn scenario_artifact_evaluate_live() {
+        let artifact = Artifact::new(TREE, "test", "abc123", 1_700_000_000);
+        let policy = Policy::permissive("test");
+        let log: Vec<Claim> = Vec::new();
+        // Re-evaluate at consumption time — R4
+        let verdict = artifact.evaluate(&policy, &log).unwrap();
+        assert_eq!(verdict.result, VerdictResult::Pass);
+    }
+
+    #[test]
+    fn scenario_artifact_status_changes_after_falsification() {
+        let artifact = Artifact::new(TREE, "test", "abc123", 1_700_000_000);
+        let policy = Policy::permissive("test");
+
+        // First evaluation: passes (no claims)
+        let log_before: Vec<Claim> = Vec::new();
+        let verdict_before = artifact.evaluate(&policy, &log_before).unwrap();
+        assert_eq!(verdict_before.result, VerdictResult::Pass);
+
+        // After falsification: fails
+        let claim = make_predicate_claim(ID_A, OriginKind::AgentAsserted, TREE);
+        let falsification = Claim {
+            id: ClaimId::new(ID_B).unwrap(),
+            kind: ClaimKind::Falsification,
+            target: vec![ClaimId::new(ID_A).unwrap()],
+            assertion: AssertionForm::Annotation {
+                text: "wrong".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: TREE.into(),
+                strategy: AnchorStrategy::PathRange,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_001,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log_after = vec![claim, falsification];
+        let verdict_after = artifact.evaluate(&policy, &log_after).unwrap();
+        assert_eq!(verdict_after.result, VerdictResult::Fail);
+        // No byte of the artifact changed — R4
+        assert_eq!(artifact.tree, TREE);
+        assert_eq!(artifact.digest, "abc123");
     }
 }

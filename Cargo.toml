@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/elench",
+    "crates/elench-anchor",
     "crates/elench-claim",
     "crates/elench-envelope",
     "crates/elench-gate",

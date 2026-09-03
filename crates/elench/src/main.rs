@@ -51,6 +51,7 @@ fn main() {
         "accept" => cmd_accept(rest),
         "conflicts" => cmd_conflicts(rest),
         "compact" => cmd_compact(rest),
+        "artifact" => cmd_artifact(rest),
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -84,6 +85,7 @@ fn print_usage() {
     println!("    accept     Accept named unevaluated gaps (residue-acceptance)");
     println!("    conflicts  List active predicate conflicts for a tree");
     println!("    compact    Compact the claim log (manual, destructive)");
+    println!("    artifact   Create or verify a release artifact (INV-15)");
     println!("    help       Print this message");
     println!("    version    Print version information");
     println!();
@@ -952,4 +954,110 @@ fn cmd_compact(args: &[String]) {
     println!("(manual, destructive — retired claims are assumed final)");
     println!("(compaction record carries frozen statuses forward)");
     println!("(active claims continue to be revocable, R1 preserved)");
+}
+
+// ---------------------------------------------------------------------------
+// artifact — create or verify a release artifact (INV-15)
+// ---------------------------------------------------------------------------
+
+fn cmd_artifact(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench artifact: requires a subcommand");
+        eprintln!("  elench artifact create <tree> <policy> <digest>");
+        eprintln!("  elench artifact verify <artifact.json> <claims.json>");
+        std::process::exit(1);
+    }
+
+    match args[0].as_str() {
+        "create" => {
+            if args.len() < 4 {
+                eprintln!("elench artifact create: requires <tree> <policy> <digest>");
+                eprintln!("  elench artifact create <tree_oid> <policy_name> <sha256_digest>");
+                std::process::exit(1);
+            }
+
+            let tree = &args[1];
+            let policy = &args[2];
+            let digest = &args[3];
+            let released_at: i64 = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+
+            let artifact = elench_gate::Artifact::new(tree, policy, digest, released_at);
+            let json = match artifact.to_json() {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("elench artifact create: serialization failed: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            println!("{json}");
+            println!();
+            println!("(INV-15: artifact carries (tree, policy), not a verdict)");
+            println!("(R4: consumers re-evaluate at consumption time)");
+        }
+        "verify" => {
+            if args.len() < 3 {
+                eprintln!("elench artifact verify: requires <artifact.json> <claims.json>");
+                std::process::exit(1);
+            }
+
+            let artifact_path = PathBuf::from(&args[1]);
+            let claims_path = PathBuf::from(&args[2]);
+
+            let artifact_json = match std::fs::read_to_string(&artifact_path) {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("elench artifact verify: failed to read {artifact_path:?}: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let artifact = match elench_gate::Artifact::from_json(&artifact_json) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("elench artifact verify: invalid artifact JSON: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let log = parse_claims_file(&claims_path);
+            let policy = elench_gate::Policy::permissive(&artifact.policy);
+
+            let verdict = match artifact.evaluate(&policy, &log) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("elench artifact verify: gate evaluation failed: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            println!("artifact:");
+            println!("  tree:       {}", artifact.tree);
+            println!("  policy:     {}", artifact.policy);
+            println!("  digest:     {}", artifact.digest);
+            println!("  released:   {}", artifact.released_at);
+            println!();
+            println!("verdict (live evaluation):");
+            println!("  result:     {:?}", verdict.result);
+            if !verdict.reasons.is_empty() {
+                println!("  reasons:");
+                for r in &verdict.reasons {
+                    println!("    - {r}");
+                }
+            }
+            println!();
+            println!(
+                "(INV-15: no verdict stored in artifact — re-evaluated from {} claims)",
+                log.len()
+            );
+        }
+        other => {
+            eprintln!("elench artifact: unknown subcommand '{other}'");
+            eprintln!("  elench artifact create <tree> <policy> <digest>");
+            eprintln!("  elench artifact verify <artifact.json> <claims.json>");
+            std::process::exit(1);
+        }
+    }
 }
