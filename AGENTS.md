@@ -2,27 +2,27 @@
 
 This file serves two purposes: **workflow router** (how agents work on
 this project) and **harness contract** (what agents emit into the claim
-log). Both are binding. The harness contract is in force from now;
-until a validator exists (ADR-0006), its rules are unevaluated, not
-passed.
+log). Both are binding. The validator is implemented (ADR-0006); its
+rules are ENFORCED, not unevaluated.
 
 ## Project state
 
 | Field | Value |
 |-------|-------|
-| Mode | Greenfield (no source code; spec scaffold built) |
-| Phase | Pre-implementation — E0 not yet run |
+| Mode | Implemented (Phases 0–5 complete) |
+| Phase | Post-implementation — E0/E1/E2 PASSED, all phases built |
 | Language | Rust (edition 2024, MSRV 1.85) |
 | License | MIT |
-| Crate count | 5 (elench, elench-claim, elench-envelope, elench-store, elench-gate) |
-| Spec count | 7 feature files, 44 scenarios, 28 invariants (1 removed), 20 assumptions, 11 failure modes |
-| ADR count | 7 (0001–0007; 0000 is template) |
-| Experiment count | 3 (E0 not run, E1 not run, E2 not run) |
-| Fidelity | All invariants NONE. First milestone: validator (ADR-0006). |
+| Crate count | 7 (elench, elench-claim, elench-envelope, elench-store, elench-gate, elench-predicate, elench-projection) |
+| Spec count | 7 feature files, 44 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
+| ADR count | 8 (0001–0008; 0000 is template) |
+| Experiment count | 3 (E0 PASSED 0.72, E1 PASSED 99.4%, E2 PASSED cheap-to-fix) |
+| Fidelity | 27 invariants ENFORCED, 1 future (INV-15 artifact format). 161 tests, 90% coverage. |
+| Store backend | In-memory (default), fjall (optional feature, ADR-0008) |
 
-**Gate:** Do not begin implementation until E0 has run. E0's result
-determines whether the gate layer should exist. See
-`experiments/E0-predicate-ratio.md` for thresholds.
+E0 PASSED (ratio 0.72, threshold ≥ 0.30). All five phases are
+implemented and audited. The validator (ADR-0006) enforces all
+AGENTS.md emission rules.
 
 ## Workflow routing
 

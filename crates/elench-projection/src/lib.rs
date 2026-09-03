@@ -28,7 +28,7 @@
 //! `git blame` maps to the specific claim that introduced the line.
 
 use elench_claim::{Claim, ClaimKind};
-use elench_store::{Oid, TreeEntry, TreeEntryKind};
+use elench_store::{Oid, StoreBackend, TreeEntry, TreeEntryKind};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -127,10 +127,7 @@ pub struct Projection {
 /// Returns [`ProjectionError`] if the claim log is empty or a claim
 /// has no anchor.
 #[allow(clippy::format_push_string, clippy::too_many_lines)]
-pub fn synthesize(
-    log: &[Claim],
-    store: &elench_store::Store,
-) -> Result<Projection, ProjectionError> {
+pub fn synthesize(log: &[Claim], store: &impl StoreBackend) -> Result<Projection, ProjectionError> {
     if log.is_empty() {
         return Err(ProjectionError::EmptyLog);
     }
@@ -279,7 +276,7 @@ fn tree_entry_to_git(
     trees: &mut Vec<GitTree>,
     seen_blobs: &mut std::collections::HashSet<String>,
     seen_trees: &mut std::collections::HashSet<String>,
-    _store: &elench_store::Store,
+    _store: &impl StoreBackend,
 ) -> GitTreeEntry {
     let mode = match entry.kind {
         TreeEntryKind::Blob => {

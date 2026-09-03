@@ -6,12 +6,11 @@ An evidence layer for repositories — and the substrate that replaces git.
 
 ## Status
 
-Nothing is built. Nothing is decided. This repository contains a problem
-statement, a draft data model, a spec scaffold, and three pre-registered
-experiments whose results determine whether the project should exist at
-all.
+Implemented: Phases 0–5. 161 tests, 90% line coverage. All three
+binding experiments PASSED (E0: 0.72, E1: 99.4%, E2: cheap-to-fix).
+The validator (ADR-0006) enforces all AGENTS.md emission rules.
 
-Do not begin implementation until E0 has run. See `experiments/`.
+Store backend: in-memory (default), fjall (optional feature, ADR-0008).
 
 ## What this is
 
@@ -52,15 +51,17 @@ freezes it. If elench is only SLSA with extra steps, abandon it.
 
 ## Architecture
 
-elench is a Rust workspace of five crates, organized by bounded context:
+elench is a Rust workspace of seven crates, organized by bounded context:
 
 | Crate | Role |
 |-------|------|
 | [`elench`](crates/elench) | Binary. The CLI + git projection. Synthesizes git objects from the claim log (ADR-0002, ADR-0007). |
 | [`elench-claim`](crates/elench-claim) | Claim data model, log-folding status computation, emission-rule validation. |
+| [`elench-predicate`](crates/elench-predicate) | Parser and evaluator for `elench-predicate-v1` DSL (ADR-0004). |
 | [`elench-envelope`](crates/elench-envelope) | DSSE envelopes carrying in-toto statements. |
 | [`elench-store`](crates/elench-store) | Content-addressed store: blobs, trees, claims. The substrate (ADR-0001). |
 | [`elench-gate`](crates/elench-gate) | Release gate evaluation — a predicate over claims, not a build. |
+| [`elench-projection`](crates/elench-projection) | Deterministic git synthesis from the claim log (ADR-0002, ADR-0007). |
 
 See `specs/architecture/module-graph.md` for the dependency graph and
 `specs/architecture/build-phases.md` for the implementation order (all
@@ -88,7 +89,7 @@ Requires Rust 1.85+ (edition 2024). See `CONTRIBUTING.md` for details.
 6. `AGENTS.md` — workflow router + harness contract
 7. `specs/` — ubiquitous language, domain model, invariants, features,
    failure modes, assumptions, fidelity, cross-context, architecture
-8. `specs/architecture/adr/` — ADR log (0001–0007)
+8. `specs/architecture/adr/` — ADR log (0001–0008)
 
 ## License
 

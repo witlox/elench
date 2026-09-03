@@ -165,7 +165,7 @@ fn sort_key(name: &str, kind: TreeEntryKind) -> String {
 /// Canonical tree serialization: for each entry (sorted),
 /// `mode_octal_ascii space name null 32_byte_sha256`.
 /// This matches git's tree object format exactly.
-fn canonical_tree_bytes(entries: &[TreeEntry]) -> Vec<u8> {
+pub(crate) fn canonical_tree_bytes(entries: &[TreeEntry]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(entries.len() * 40);
     for entry in entries {
         // mode as octal ASCII (no leading zeros, e.g. "100644", "40000")
@@ -184,17 +184,113 @@ fn canonical_tree_bytes(entries: &[TreeEntry]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Store — in-memory content-addressed store
+// StoreBackend trait — abstracts the storage backend
 // ---------------------------------------------------------------------------
 
-/// The elench content-addressed store. In-memory for Phase 1; a
-/// persistent backend (files, fjall, etc.) is a future concern.
+/// Abstract content-addressed store backend.
+///
+/// Implementations:
+/// - [`MemoryStore`]: in-memory `HashMap` (default, no deps)
+/// - `FjallStore`: persistent LSM-tree backend (optional, `fjall-backend` feature)
+///
+/// INV-01: append-only. Objects are never modified or deleted.
+/// INV-18: elench owns the store. No git dependency.
+/// INV-26: sole source of truth. All views derive from the store.
+pub trait StoreBackend {
+    /// Store a blob. Returns the blob's OID (SHA-256 of data).
+    /// INV-01: idempotent if same data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::ContentAddressingViolation`] if the OID
+    /// exists with different data.
+    fn store_blob(&mut self, data: &[u8]) -> Result<Oid, StoreError>;
+
+    /// Store a tree. Returns the tree's OID.
+    /// INV-01: idempotent if same entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::ContentAddressingViolation`] if the OID
+    /// exists with different entries.
+    fn store_tree(&mut self, entries: Vec<TreeEntry>) -> Result<Oid, StoreError>;
+
+    /// Store a claim. Returns the claim's OID (`cl_` + SHA-256).
+    /// INV-01: idempotent if same content.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::ContentAddressingViolation`] if the OID
+    /// exists with different content.
+    fn store_claim(&mut self, claim: &Claim) -> Result<String, StoreError>;
+
+    /// Read a blob by OID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::ObjectNotFound`] if the blob doesn't exist.
+    fn read_blob(&self, oid: &Oid) -> Result<Vec<u8>, StoreError>;
+
+    /// Read a tree by OID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::ObjectNotFound`] if the tree doesn't exist.
+    fn read_tree(&self, oid: &Oid) -> Result<Tree, StoreError>;
+
+    /// Read all claims from the store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::CorruptStore`] if any claim JSON is invalid.
+    fn read_all_claims(&self) -> Result<Vec<Claim>, StoreError>;
+
+    /// Read claims for a specific tree (by elench tree OID).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::CorruptStore`] if the claim log is corrupt.
+    fn read_claims_for_tree(&self, tree: &Oid) -> Result<Vec<Claim>, StoreError>;
+
+    /// Check if a blob exists.
+    #[must_use]
+    fn has_blob(&self, oid: &Oid) -> bool;
+
+    /// Check if a tree exists.
+    #[must_use]
+    fn has_tree(&self, oid: &Oid) -> bool;
+
+    /// Check if a claim exists.
+    #[must_use]
+    fn has_claim(&self, claim_oid: &str) -> bool;
+
+    /// Number of blobs in the store.
+    #[must_use]
+    fn blob_count(&self) -> usize;
+
+    /// Number of trees in the store.
+    #[must_use]
+    fn tree_count(&self) -> usize;
+
+    /// Number of claims in the store.
+    #[must_use]
+    fn claim_count(&self) -> usize;
+}
+
+// ---------------------------------------------------------------------------
+// MemoryStore — in-memory content-addressed store (default, no deps)
+// ---------------------------------------------------------------------------
+
+/// In-memory content-addressed store. Default backend; no persistence.
+///
+/// For persistence, enable the `fjall-backend` feature and use
+/// `FjallStore` instead.
 ///
 /// INV-01: append-only. Objects are never modified or deleted.
 /// INV-18: elench owns the store. No git dependency.
 /// INV-26: sole source of truth. All views derive from this store.
 #[derive(Debug, Default)]
-pub struct Store {
+pub struct MemoryStore {
     /// Blob storage: OID -> data.
     blobs: HashMap<String, Vec<u8>>,
     /// Tree storage: OID -> entries.
@@ -203,22 +299,27 @@ pub struct Store {
     claims: HashMap<String, String>,
 }
 
-impl Store {
+/// Type alias for backwards compatibility.
+pub type Store = MemoryStore;
+
+impl MemoryStore {
     /// Create a new empty store.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
+}
 
+impl StoreBackend for MemoryStore {
     /// Store a blob. Returns the blob's OID (SHA-256 of data).
     /// INV-01: if the OID already exists, the existing data is
     /// returned without modification (append-only / idempotent).
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::ObjectExists`] if the OID exists with
-    /// *different* data (content-addressing violation).
-    pub fn store_blob(&mut self, data: &[u8]) -> Result<Oid, StoreError> {
+    /// Returns [`StoreError::ContentAddressingViolation`] if the OID
+    /// exists with *different* data (content-addressing violation).
+    fn store_blob(&mut self, data: &[u8]) -> Result<Oid, StoreError> {
         let oid = Oid::from_blob_data(data);
         let oid_str = oid.as_str().to_string();
 
@@ -244,7 +345,7 @@ impl Store {
     ///
     /// Returns [`StoreError::ContentAddressingViolation`] if the OID
     /// exists with different entries.
-    pub fn store_tree(&mut self, entries: Vec<TreeEntry>) -> Result<Oid, StoreError> {
+    fn store_tree(&mut self, entries: Vec<TreeEntry>) -> Result<Oid, StoreError> {
         let oid = Oid::from_tree_entries(&entries);
         let oid_str = oid.as_str().to_string();
 
@@ -270,7 +371,7 @@ impl Store {
     ///
     /// Returns [`StoreError::ContentAddressingViolation`] if the OID
     /// exists with different content.
-    pub fn store_claim(&mut self, claim: &Claim) -> Result<String, StoreError> {
+    fn store_claim(&mut self, claim: &Claim) -> Result<String, StoreError> {
         let oid = elench_claim::ClaimId::from_content(claim).to_string();
 
         let json = serde_json::to_string(claim)
@@ -295,7 +396,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::ObjectNotFound`] if the blob doesn't exist.
-    pub fn read_blob(&self, oid: &Oid) -> Result<Vec<u8>, StoreError> {
+    fn read_blob(&self, oid: &Oid) -> Result<Vec<u8>, StoreError> {
         self.blobs
             .get(oid.as_str())
             .cloned()
@@ -307,7 +408,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::ObjectNotFound`] if the tree doesn't exist.
-    pub fn read_tree(&self, oid: &Oid) -> Result<Tree, StoreError> {
+    fn read_tree(&self, oid: &Oid) -> Result<Tree, StoreError> {
         let entries = self
             .trees
             .get(oid.as_str())
@@ -327,7 +428,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::CorruptStore`] if any claim JSON is invalid.
-    pub fn read_all_claims(&self) -> Result<Vec<Claim>, StoreError> {
+    fn read_all_claims(&self) -> Result<Vec<Claim>, StoreError> {
         let mut claims = Vec::with_capacity(self.claims.len());
         for (oid, json) in &self.claims {
             let claim: Claim = serde_json::from_str(json).map_err(|e| {
@@ -343,7 +444,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::CorruptStore`] if the claim log is corrupt.
-    pub fn read_claims_for_tree(&self, tree: &Oid) -> Result<Vec<Claim>, StoreError> {
+    fn read_claims_for_tree(&self, tree: &Oid) -> Result<Vec<Claim>, StoreError> {
         let all = self.read_all_claims()?;
         Ok(all
             .into_iter()
@@ -352,41 +453,45 @@ impl Store {
     }
 
     /// Number of blobs in the store.
-    #[must_use]
-    pub fn blob_count(&self) -> usize {
+    fn blob_count(&self) -> usize {
         self.blobs.len()
     }
 
     /// Number of trees in the store.
-    #[must_use]
-    pub fn tree_count(&self) -> usize {
+    fn tree_count(&self) -> usize {
         self.trees.len()
     }
 
     /// Number of claims in the store.
-    #[must_use]
-    pub fn claim_count(&self) -> usize {
+    fn claim_count(&self) -> usize {
         self.claims.len()
     }
 
     /// Check if a blob exists.
-    #[must_use]
-    pub fn has_blob(&self, oid: &Oid) -> bool {
+    fn has_blob(&self, oid: &Oid) -> bool {
         self.blobs.contains_key(oid.as_str())
     }
 
     /// Check if a tree exists.
-    #[must_use]
-    pub fn has_tree(&self, oid: &Oid) -> bool {
+    fn has_tree(&self, oid: &Oid) -> bool {
         self.trees.contains_key(oid.as_str())
     }
 
     /// Check if a claim exists.
-    #[must_use]
-    pub fn has_claim(&self, claim_oid: &str) -> bool {
+    fn has_claim(&self, claim_oid: &str) -> bool {
         self.claims.contains_key(claim_oid)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fjall backend (optional, behind `fjall-backend` feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "fjall-backend")]
+mod fjall_backend;
+
+#[cfg(feature = "fjall-backend")]
+pub use fjall_backend::FjallStore;
 
 // ---------------------------------------------------------------------------
 // Errors

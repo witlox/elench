@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-#[allow(clippy::unnecessary_debug_formatting)]
+use elench_store::StoreBackend;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -132,7 +132,7 @@ fn cmd_emit(args: &[String]) {
     let envelope = elench_envelope::sign(&claim, &signing_key);
 
     // 5. Store the claim
-    let mut store = elench_store::Store::new();
+    let mut store = elench_store::MemoryStore::new();
     let stored_oid = match store.store_claim(&claim) {
         Ok(oid) => oid,
         Err(e) => {
@@ -362,7 +362,7 @@ fn cmd_git(args: &[String]) {
 
     // For Phase 5, demonstrate the projection with an empty log.
     let log: Vec<elench_claim::Claim> = Vec::new();
-    let store = elench_store::Store::new();
+    let store = elench_store::MemoryStore::new();
 
     if log.is_empty() {
         println!("(empty claim log — nothing to project)");
@@ -425,7 +425,7 @@ fn cmd_store(args: &[String]) {
                 std::process::exit(1);
             }
 
-            let mut store = elench_store::Store::new();
+            let mut store = elench_store::MemoryStore::new();
             let mut entries = Vec::new();
 
             for file_path in &args[1..] {

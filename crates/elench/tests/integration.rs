@@ -11,7 +11,7 @@ use elench_claim::{
 use elench_envelope::{SigningKey, VerifyingKey, sign, verify};
 use elench_gate::{Policy, VerdictResult, evaluate};
 use elench_projection::{git_log_oneline, synthesize};
-use elench_store::Store;
+use elench_store::{MemoryStore as Store, StoreBackend};
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -64,21 +64,22 @@ See `AGENTS.md` for full role dispatch and escalation paths.
 Agents working on this repository emit claims following the rules in
 `AGENTS.md` §Harness contract. The key asymmetry: the harness emits
 what it observed; the agent emits only what nothing else can observe.
-Until a validator exists (ADR-0006), these rules are unevaluated, not
-passed.
+The validator (ADR-0006) is implemented and enforces all emission
+rules.
 
 ## Experiments
 
-Three binding experiments gate whether the project should exist:
+Three binding experiments — all PASSED:
 
-- **E0** (predicate ratio) — run first. Gates ADR-0004 and all
-  implementation.
-- **E1** (anchor survival) — run after E0 passes. Gates the `anchor`
-  object in `schema/claim.schema.json`.
-- **E2** (build reproducibility) — independent, can run in parallel.
-  Gates release-policy condition 4.
+- **E0** (predicate ratio) — PASSED 0.72 (threshold >= 0.30). Gates
+  ADR-0004 and all implementation. PROCEED AS DESIGNED.
+- **E1** (anchor survival) — PASSED 99.4% correct, 0.6% wrong (all
+  strategies USABLE). Gates the `anchor` object in
+  `schema/claim.schema.json`. Proceed with multi.
+- **E2** (build reproducibility) — PASSED. Same-triple divergences all
+  cheap-to-fix. K-of-N available. Gates release-policy condition 4.
 
-See `experiments/` for pre-registered thresholds.
+See `experiments/` for pre-registered thresholds and results.
 
 ## PR process
 
