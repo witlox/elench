@@ -14,9 +14,19 @@
 //! read-only and deterministic (BC4). Humans use git; elench is
 //! invisible.
 
+#![allow(
+    clippy::unnecessary_debug_formatting,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::single_match_else,
+    clippy::nonminimal_bool,
+    clippy::match_wildcard_for_single_variants
+)]
+
 use std::path::PathBuf;
 
 use elench_store::StoreBackend;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -36,6 +46,11 @@ fn main() {
         "blast" => cmd_blast(rest),
         "git" => cmd_git(rest),
         "store" => cmd_store(rest),
+        "log" => cmd_log(rest),
+        "review" => cmd_review(rest),
+        "accept" => cmd_accept(rest),
+        "conflicts" => cmd_conflicts(rest),
+        "compact" => cmd_compact(rest),
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -64,6 +79,11 @@ fn print_usage() {
     println!("    blast      Compute the blast radius from a claim");
     println!("    git        Materialize the git projection");
     println!("    store      Store a blob or tree");
+    println!("    log        Log statistics (count, status distribution, conflicts)");
+    println!("    review     Review unevaluated claims for a tree");
+    println!("    accept     Accept named unevaluated gaps (residue-acceptance)");
+    println!("    conflicts  List active predicate conflicts for a tree");
+    println!("    compact    Compact the claim log (manual, destructive)");
     println!("    help       Print this message");
     println!("    version    Print version information");
     println!();
@@ -73,10 +93,46 @@ fn print_usage() {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers — parse claims from a JSON file
+// ---------------------------------------------------------------------------
+
+fn parse_claims_file(path: &PathBuf) -> Vec<elench_claim::Claim> {
+    let json = match std::fs::read_to_string(path) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("elench: failed to read {path:?}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let trimmed = json.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    if trimmed.starts_with('[') {
+        match serde_json::from_str::<Vec<elench_claim::Claim>>(&json) {
+            Ok(claims) => claims,
+            Err(e) => {
+                eprintln!("elench: invalid claims JSON array: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        match serde_json::from_str::<elench_claim::Claim>(&json) {
+            Ok(claim) => vec![claim],
+            Err(e) => {
+                eprintln!("elench: invalid claim JSON: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // emit — create, sign, and store a claim
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::unnecessary_debug_formatting)]
 fn cmd_emit(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench emit: requires a claim JSON file");
@@ -97,7 +153,6 @@ fn cmd_emit(args: &[String]) {
         }
     };
 
-    // 1. Parse the claim from JSON
     let mut claim: elench_claim::Claim = match serde_json::from_str(&json) {
         Ok(c) => c,
         Err(e) => {
@@ -106,12 +161,9 @@ fn cmd_emit(args: &[String]) {
         }
     };
 
-    // 2. Compute the claim ID from content (INV-28)
     let computed_id = elench_claim::ClaimId::from_content(&claim);
     claim.id = computed_id.clone();
 
-    // 3. Validate the claim against emission rules
-    //    For Phase 5, we use a default signer (agent).
     let signer = elench_claim::SignerIdentity {
         key_id: "default-agent-key".into(),
         entity: elench_claim::SignerEntity::Agent,
@@ -123,7 +175,6 @@ fn cmd_emit(args: &[String]) {
         std::process::exit(1);
     }
 
-    // 4. Sign the claim in a DSSE envelope
     let signing_key = elench_envelope::SigningKey::new(
         "default-agent-key",
         elench_claim::SignerEntity::Agent,
@@ -131,7 +182,6 @@ fn cmd_emit(args: &[String]) {
     );
     let envelope = elench_envelope::sign(&claim, &signing_key);
 
-    // 5. Store the claim
     let mut store = elench_store::MemoryStore::new();
     let stored_oid = match store.store_claim(&claim) {
         Ok(oid) => oid,
@@ -141,7 +191,6 @@ fn cmd_emit(args: &[String]) {
         }
     };
 
-    // 6. Print results
     println!("claim emitted:");
     println!("  id:       {computed_id}");
     println!("  kind:     {}", claim.kind_str());
@@ -171,7 +220,6 @@ fn cmd_emit(args: &[String]) {
 // verify — verify an envelope and validate the claim
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::unnecessary_debug_formatting)]
 fn cmd_verify(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench verify: requires an envelope JSON file");
@@ -188,7 +236,6 @@ fn cmd_verify(args: &[String]) {
         }
     };
 
-    // 1. Parse the envelope from JSON
     let envelope: elench_envelope::Envelope = match serde_json::from_str(&json) {
         Ok(e) => e,
         Err(e) => {
@@ -197,7 +244,6 @@ fn cmd_verify(args: &[String]) {
         }
     };
 
-    // 2. Set up verifying keys (for Phase 5, a default agent key)
     let keys = vec![elench_envelope::VerifyingKey {
         key_id: "default-agent-key".into(),
         entity: elench_claim::SignerEntity::Agent,
@@ -207,7 +253,6 @@ fn cmd_verify(args: &[String]) {
         "elench-default-secret".to_string(),
     )];
 
-    // 3. Verify the envelope's signature and extract the claim
     let (claim, signer) = match elench_envelope::verify(&envelope, &keys, &secrets) {
         Ok(result) => result,
         Err(e) => {
@@ -216,18 +261,15 @@ fn cmd_verify(args: &[String]) {
         }
     };
 
-    // 4. Validate the claim against emission rules
     let log: Vec<elench_claim::Claim> = Vec::new();
     if let Err(e) = elench_claim::validate_claim(&claim, &signer, &log) {
         eprintln!("elench verify: claim rejected by validator: {e}");
         std::process::exit(1);
     }
 
-    // 5. Compute the claim's status
     let status = elench_claim::compute_status(&claim.id, &log)
         .unwrap_or(elench_claim::ClaimStatus::Unevaluated);
 
-    // 6. Print results
     println!("claim verified:");
     println!("  id:       {}", claim.id);
     println!("  kind:     {}", claim.kind_str());
@@ -248,19 +290,27 @@ fn cmd_verify(args: &[String]) {
 fn cmd_status(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench status: requires a claim ID");
-        eprintln!("  elench status <claim_id>");
+        eprintln!("  elench status <claim_id> [<claims.json>]");
         std::process::exit(1);
     }
 
     let claim_id = &args[0];
+    let log = if args.len() > 1 {
+        parse_claims_file(&PathBuf::from(&args[1]))
+    } else {
+        Vec::new()
+    };
 
     if let Ok(id) = elench_claim::ClaimId::new(claim_id) {
-        let status = elench_claim::compute_status(&id, &[])
+        let status = elench_claim::compute_status(&id, &log)
             .unwrap_or(elench_claim::ClaimStatus::Unevaluated);
         println!("claim: {id}");
         println!("status: {status:?}");
-        println!();
-        println!("(computed from empty log — live evaluation, INV-14)");
+        if log.is_empty() {
+            println!("(computed from {} claims in log)", log.len());
+        } else {
+            println!("(computed from empty log — live evaluation, INV-14)");
+        }
     } else {
         eprintln!("elench status: invalid claim ID: {claim_id}");
         eprintln!("  expected: cl_ + 64 hex chars (SHA-256)");
@@ -275,14 +325,19 @@ fn cmd_status(args: &[String]) {
 fn cmd_gate(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench gate: requires a tree OID");
-        eprintln!("  elench gate <tree_oid>");
+        eprintln!("  elench gate <tree_oid> [<claims.json>]");
         std::process::exit(1);
     }
 
     let tree = &args[0];
+    let log = if args.len() > 1 {
+        parse_claims_file(&PathBuf::from(&args[1]))
+    } else {
+        Vec::new()
+    };
 
     let policy = elench_gate::Policy::permissive("default");
-    let verdict = elench_gate::evaluate(tree, &policy, &[]).unwrap_or_else(|e| {
+    let verdict = elench_gate::evaluate(tree, &policy, &log).unwrap_or_else(|e| {
         eprintln!("elench gate: evaluation error: {e}");
         std::process::exit(1);
     });
@@ -296,7 +351,9 @@ fn cmd_gate(args: &[String]) {
             println!("  - {r}");
         }
     }
-    println!();
+    if log.is_empty() {
+        println!("(evaluated against {} claims)", log.len());
+    }
     println!("(live evaluation — INV-13: no build capability required)");
 }
 
@@ -307,14 +364,19 @@ fn cmd_gate(args: &[String]) {
 fn cmd_blast(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench blast: requires a claim ID");
-        eprintln!("  elench blast <claim_id>");
+        eprintln!("  elench blast <claim_id> [<claims.json>]");
         std::process::exit(1);
     }
 
     let claim_id = &args[0];
+    let log = if args.len() > 1 {
+        parse_claims_file(&PathBuf::from(&args[1]))
+    } else {
+        Vec::new()
+    };
 
     if let Ok(id) = elench_claim::ClaimId::new(claim_id) {
-        let radius = elench_claim::blast_radius(&id, &[]);
+        let radius = elench_claim::blast_radius(&id, &log);
         println!("claim: {id}");
         println!("blast radius: {} claims", radius.len());
         if !radius.is_empty() {
@@ -323,8 +385,11 @@ fn cmd_blast(args: &[String]) {
                 println!("  - {c}");
             }
         }
-        println!();
-        println!("(computed from empty log — transitive dependsOn closure)");
+        if log.is_empty() {
+            println!("(computed from {} claims in log)", log.len());
+        } else {
+            println!("(computed from empty log — transitive dependsOn closure)");
+        }
     } else {
         eprintln!("elench blast: invalid claim ID: {claim_id}");
         std::process::exit(1);
@@ -335,7 +400,6 @@ fn cmd_blast(args: &[String]) {
 // git — materialize the git projection
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::unnecessary_debug_formatting)]
 fn cmd_git(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench git: requires a claim log file");
@@ -360,19 +424,24 @@ fn cmd_git(args: &[String]) {
         std::process::exit(1);
     }
 
-    // For Phase 5, demonstrate the projection with an empty log.
-    let log: Vec<elench_claim::Claim> = Vec::new();
-    let store = elench_store::MemoryStore::new();
+    let log = parse_claims_file(&path);
 
     if log.is_empty() {
         println!("(empty claim log — nothing to project)");
-        println!("(elench git: read claims from {path:?}, synthesize git objects)");
-        println!("(elench-projection::synthesize: deterministic, ADR-0002/0007)");
         return;
     }
 
+    let store = elench_store::MemoryStore::new();
+
     match elench_projection::synthesize(&log, &store) {
         Ok(projection) => {
+            println!(
+                "projection: {} commits, {} blobs, {} trees",
+                projection.commits.len(),
+                projection.blobs.len(),
+                projection.trees.len()
+            );
+            println!();
             let output = match format {
                 "full" => elench_projection::git_log_full(&projection),
                 _ => elench_projection::git_log_oneline(&projection),
@@ -390,7 +459,6 @@ fn cmd_git(args: &[String]) {
 // store — store a blob or tree
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::unnecessary_debug_formatting)]
 fn cmd_store(args: &[String]) {
     if args.is_empty() {
         eprintln!("elench store: requires a subcommand");
@@ -465,4 +533,423 @@ fn cmd_store(args: &[String]) {
             std::process::exit(1);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// log — log statistics (count, status distribution, conflicts)
+// ---------------------------------------------------------------------------
+
+fn cmd_log(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench log: requires a claims file");
+        eprintln!("  elench log <claims.json>");
+        std::process::exit(1);
+    }
+
+    let path = PathBuf::from(&args[0]);
+    let log = parse_claims_file(&path);
+
+    if log.is_empty() {
+        println!("(empty claim log)");
+        return;
+    }
+
+    let total = log.len();
+    let mut unevaluated = 0;
+    let mut passed = 0;
+    let mut falsified = 0;
+    let mut assertions = 0;
+    let mut verifications = 0;
+    let mut falsifications = 0;
+    let mut supersessions = 0;
+    let mut residue_acceptances = 0;
+
+    for claim in &log {
+        let status = elench_claim::compute_status(&claim.id, &log)
+            .unwrap_or(elench_claim::ClaimStatus::Unevaluated);
+        match status {
+            elench_claim::ClaimStatus::Unevaluated => unevaluated += 1,
+            elench_claim::ClaimStatus::Passed => passed += 1,
+            elench_claim::ClaimStatus::Falsified => falsified += 1,
+        }
+        match claim.kind {
+            elench_claim::ClaimKind::Assertion => assertions += 1,
+            elench_claim::ClaimKind::Verification => verifications += 1,
+            elench_claim::ClaimKind::Falsification => falsifications += 1,
+            elench_claim::ClaimKind::Supersession => supersessions += 1,
+            elench_claim::ClaimKind::ResidueAcceptance => residue_acceptances += 1,
+        }
+    }
+
+    println!("log statistics:");
+    println!("  total:            {total}");
+    println!("  assertions:       {assertions}");
+    println!("  verifications:    {verifications}");
+    println!("  falsifications:   {falsifications}");
+    println!("  supersessions:    {supersessions}");
+    println!("  residue-accept:   {residue_acceptances}");
+    println!();
+    println!("status distribution:");
+    println!("  unevaluated:      {unevaluated}");
+    println!("  passed:           {passed}");
+    println!("  falsified:        {falsified}");
+    println!();
+
+    let noise_ratio: f64 = if total > 0 {
+        f64::from(falsifications + supersessions) / total as f64
+    } else {
+        0.0
+    };
+    let unevaluated_ratio: f64 = if total > 0 {
+        f64::from(unevaluated) / total as f64
+    } else {
+        0.0
+    };
+    println!("ratios:");
+    println!("  noise (fals+super):    {noise_ratio:.2}");
+    println!("  unevaluated:           {unevaluated_ratio:.2}");
+    println!();
+
+    let depends_on_density: f64 = if total > 0 {
+        log.iter().map(|c| c.depends_on.len()).sum::<usize>() as f64 / total as f64
+    } else {
+        0.0
+    };
+    println!("dependsOn density: {depends_on_density:.2} per claim");
+}
+
+// ---------------------------------------------------------------------------
+// review — review unevaluated claims for a tree
+// ---------------------------------------------------------------------------
+
+fn cmd_review(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench review: requires a tree OID and claims file");
+        eprintln!("  elench review <tree_oid> <claims.json>");
+        std::process::exit(1);
+    }
+
+    if args.len() < 2 {
+        eprintln!("elench review: requires a claims file");
+        eprintln!("  elench review <tree_oid> <claims.json>");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+    let log = parse_claims_file(&PathBuf::from(&args[1]));
+
+    let tree_claims: Vec<&elench_claim::Claim> =
+        log.iter().filter(|c| c.anchor.tree == *tree).collect();
+
+    if tree_claims.is_empty() {
+        println!("(no claims for tree {tree})");
+        return;
+    }
+
+    let unevaluated: Vec<&&elench_claim::Claim> = tree_claims
+        .iter()
+        .filter(|c| {
+            elench_claim::compute_status(&c.id, &log)
+                .unwrap_or(elench_claim::ClaimStatus::Unevaluated)
+                == elench_claim::ClaimStatus::Unevaluated
+        })
+        .collect();
+
+    println!("review: tree {tree}");
+    println!("  total claims:     {}", tree_claims.len());
+    println!("  unevaluated:      {}", unevaluated.len());
+    println!();
+
+    if unevaluated.is_empty() {
+        println!("(no unevaluated claims — nothing to review)");
+        return;
+    }
+
+    println!("unevaluated claims to review:");
+    for (i, claim) in unevaluated.iter().enumerate() {
+        println!("  [{}] {}", i + 1, claim.id);
+        println!("       kind:     {}", claim.kind_str());
+        match &claim.assertion {
+            elench_claim::AssertionForm::Predicate { expression } => {
+                println!("       form:     predicate");
+                println!("       language: {}", expression.language);
+                println!("       source:   {}", expression.source);
+            }
+            elench_claim::AssertionForm::Annotation { text } => {
+                println!("       form:     annotation");
+                println!("       text:     {text}");
+            }
+        }
+        println!("       producer: {}", claim.origin.producer.id);
+        println!("       origin:   {:?}", claim.origin.kind);
+        println!();
+    }
+
+    println!("To accept these gaps, run:");
+    println!("  elench accept <tree_oid> <claims.json> --claim <id> [<id>...]");
+}
+
+// ---------------------------------------------------------------------------
+// accept — accept named unevaluated gaps (residue-acceptance)
+// ---------------------------------------------------------------------------
+
+fn cmd_accept(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench accept: requires a tree OID and claims file");
+        eprintln!("  elench accept <tree_oid> <claims.json> --claim <id> [<id>...]");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+
+    if args.len() < 2 {
+        eprintln!("elench accept: requires a claims file");
+        std::process::exit(1);
+    }
+
+    let _log = parse_claims_file(&PathBuf::from(&args[1]));
+
+    let mut accepted_ids: Vec<elench_claim::ClaimId> = Vec::new();
+    let mut i = 2;
+    while i < args.len() {
+        if args[i] == "--claim" {
+            i += 1;
+            while i < args.len() && !args[i].starts_with("--") {
+                match elench_claim::ClaimId::new(&args[i]) {
+                    Ok(id) => accepted_ids.push(id),
+                    Err(_) => {
+                        eprintln!("elench accept: invalid claim ID: {}", args[i]);
+                        std::process::exit(1);
+                    }
+                }
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    if accepted_ids.is_empty() {
+        eprintln!("elench accept: no claims named. Use --claim <id> [<id>...]");
+        eprintln!("  elench accept <tree_oid> <claims.json> --claim cl_... cl_...");
+        std::process::exit(1);
+    }
+
+    let acceptance = elench_claim::Claim {
+        id: elench_claim::ClaimId::new(
+            "cl_0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap(),
+        kind: elench_claim::ClaimKind::ResidueAcceptance,
+        target: accepted_ids.clone(),
+        assertion: elench_claim::AssertionForm::Annotation {
+            text: "Human accepts named unevaluated gaps".into(),
+        },
+        origin: elench_claim::Origin {
+            kind: elench_claim::OriginKind::HumanAsserted,
+            producer: elench_claim::Producer {
+                id: "human-reviewer".into(),
+                session_id: None,
+                hermeticity: None,
+            },
+        },
+        anchor: elench_claim::Anchor {
+            tree: tree.clone(),
+            strategy: elench_claim::AnchorStrategy::Multi,
+            path: None,
+            range: None,
+            symbol: None,
+            content_digest: None,
+        },
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .try_into()
+            .unwrap_or(0),
+        evidence: vec![],
+        depends_on: vec![],
+    };
+
+    let computed_id = elench_claim::ClaimId::from_content(&acceptance);
+    println!("residue-acceptance created:");
+    println!("  id:       {computed_id}");
+    println!("  tree:     {tree}");
+    println!("  kind:     {}", acceptance.kind_str());
+    println!("  origin:   {:?}", acceptance.origin.kind);
+    println!("  targets:  {}", accepted_ids.len());
+    for id in &accepted_ids {
+        println!("    - {id}");
+    }
+    println!();
+    println!("(INV-12: only humans emit residue-acceptance)");
+    println!("(R5: unevaluated residue bounded by named acceptance)");
+}
+
+// ---------------------------------------------------------------------------
+// conflicts — list active predicate conflicts for a tree
+// ---------------------------------------------------------------------------
+
+fn cmd_conflicts(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench conflicts: requires a tree OID and claims file");
+        eprintln!("  elench conflicts <tree_oid> <claims.json>");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+
+    if args.len() < 2 {
+        eprintln!("elench conflicts: requires a claims file");
+        std::process::exit(1);
+    }
+
+    let log = parse_claims_file(&PathBuf::from(&args[1]));
+
+    let tree_claims: Vec<&elench_claim::Claim> = log
+        .iter()
+        .filter(|c| c.anchor.tree == *tree && c.kind == elench_claim::ClaimKind::Assertion)
+        .collect();
+
+    let active_predicates: Vec<&&elench_claim::Claim> = tree_claims
+        .iter()
+        .filter(|c| {
+            matches!(c.assertion, elench_claim::AssertionForm::Predicate { .. })
+                && elench_claim::compute_status(&c.id, &log)
+                    .unwrap_or(elench_claim::ClaimStatus::Unevaluated)
+                    != elench_claim::ClaimStatus::Falsified
+        })
+        .collect();
+
+    if active_predicates.is_empty() {
+        println!("(no active predicate claims for tree {tree})");
+        return;
+    }
+
+    let mut conflicts = Vec::new();
+    for i in 0..active_predicates.len() {
+        for j in (i + 1)..active_predicates.len() {
+            let a = active_predicates[i];
+            let b = active_predicates[j];
+            let expr_a = match &a.assertion {
+                elench_claim::AssertionForm::Predicate { expression } => &expression.source,
+                _ => continue,
+            };
+            let expr_b = match &b.assertion {
+                elench_claim::AssertionForm::Predicate { expression } => &expression.source,
+                _ => continue,
+            };
+            if expr_a != expr_b {
+                let winner = if a.timestamp >= b.timestamp { a } else { b };
+                let loser = if a.timestamp >= b.timestamp { b } else { a };
+                conflicts.push((
+                    a.id.clone(),
+                    b.id.clone(),
+                    winner.id.clone(),
+                    loser.id.clone(),
+                ));
+            }
+        }
+    }
+
+    println!("conflicts: tree {tree}");
+    println!("  active predicates: {}", active_predicates.len());
+    println!("  conflicts:         {}", conflicts.len());
+    println!();
+
+    if conflicts.is_empty() {
+        println!("(no contradictions detected)");
+        return;
+    }
+
+    for (a, b, winner, loser) in &conflicts {
+        println!("  conflict: {a} vs {b}");
+        println!("    latest (wins): {winner}");
+        println!("    older (flagged): {loser}");
+        println!("    (last-writer-wins, flagged for resolution)");
+        println!();
+    }
+
+    println!("To resolve: falsify one or both predicates.");
+    println!("  elench emit <falsification.json>");
+}
+
+// ---------------------------------------------------------------------------
+// compact — compact the claim log (manual, destructive)
+// ---------------------------------------------------------------------------
+
+fn cmd_compact(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench compact: requires a claims file");
+        eprintln!("  elench compact <claims.json> [--before <timestamp>]");
+        eprintln!();
+        eprintln!("Compaction is MANUAL and DESTRUCTIVE. It retires all");
+        eprintln!("claims before the cut-off timestamp, freezing their");
+        eprintln!("statuses. The compaction record carries the status");
+        eprintln!("snapshot forward.");
+        std::process::exit(1);
+    }
+
+    let path = PathBuf::from(&args[0]);
+    let log = parse_claims_file(&path);
+
+    if log.is_empty() {
+        eprintln!("elench compact: empty claim log, nothing to compact");
+        return;
+    }
+
+    let mut cutoff: Option<i64> = None;
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--before" && i + 1 < args.len() {
+            cutoff = args[i + 1].parse().ok();
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    let cutoff_ts = cutoff.unwrap_or_else(|| log.iter().map(|c| c.timestamp).max().unwrap_or(0));
+
+    let (retired, active): (Vec<&elench_claim::Claim>, Vec<&elench_claim::Claim>) =
+        log.iter().partition(|c| c.timestamp < cutoff_ts);
+
+    if retired.is_empty() {
+        eprintln!("elench compact: no claims before {cutoff_ts}, nothing to compact");
+        return;
+    }
+
+    let mut snapshot = Vec::new();
+    for claim in &retired {
+        let status = elench_claim::compute_status(&claim.id, &log)
+            .unwrap_or(elench_claim::ClaimStatus::Unevaluated);
+        snapshot.push((claim.id.clone(), status));
+    }
+
+    println!("compaction report:");
+    println!("  cut-off timestamp: {cutoff_ts}");
+    println!("  retired claims:    {}", retired.len());
+    println!("  active claims:     {}", active.len());
+    println!();
+    println!("status snapshot (frozen):");
+    let mut unevaluated = 0;
+    let mut passed = 0;
+    let mut falsified = 0;
+    for (id, status) in &snapshot {
+        match status {
+            elench_claim::ClaimStatus::Unevaluated => unevaluated += 1,
+            elench_claim::ClaimStatus::Passed => passed += 1,
+            elench_claim::ClaimStatus::Falsified => falsified += 1,
+        }
+        println!("  {id}: {status:?}");
+    }
+    println!();
+    println!("snapshot summary:");
+    println!("  unevaluated: {unevaluated}");
+    println!("  passed:      {passed}");
+    println!("  falsified:   {falsified}");
+    println!();
+    println!("(manual, destructive — retired claims are assumed final)");
+    println!("(compaction record carries frozen statuses forward)");
+    println!("(active claims continue to be revocable, R1 preserved)");
 }

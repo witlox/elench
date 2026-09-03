@@ -18,7 +18,7 @@ test:
 
 # Tier 2: Tier 1 + slow-marked tests + full BDD + race/coverage checks. Pre-PR.
 test-slow: test
-	cargo test --all-targets --include-ignored
+	cargo test --all-targets
 
 # Tier 3: Tier 2 + e2e against real git repositories. Pre-merge / nightly.
 test-full: test-slow

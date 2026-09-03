@@ -120,7 +120,7 @@ fn scenario_cli_store_unknown_subcommand_exits_1() {
 
 #[test]
 fn scenario_cli_git_empty_log() {
-    let (stdout, _, code) = elench(&["git", "/tmp/opencode/test-claim.json"]);
+    let (stdout, _, code) = elench(&["git", "/tmp/opencode/empty-claims.json"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("nothing to project") || stdout.contains("empty"));
 }
