@@ -52,6 +52,7 @@ fn main() {
         "conflicts" => cmd_conflicts(rest),
         "compact" => cmd_compact(rest),
         "artifact" => cmd_artifact(rest),
+        "build" => cmd_build(rest),
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -86,6 +87,7 @@ fn print_usage() {
     println!("    conflicts  List active predicate conflicts for a tree");
     println!("    compact    Compact the claim log (manual, destructive)");
     println!("    artifact   Create or verify a release artifact (INV-15)");
+    println!("    build      Run a build, capture exit code + digest, emit provenance");
     println!("    help       Print this message");
     println!("    version    Print version information");
     println!();
@@ -535,6 +537,120 @@ fn cmd_store(args: &[String]) {
             std::process::exit(1);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// build — run a build, capture exit code + digest, emit provenance
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::unnecessary_debug_formatting)]
+fn cmd_build(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench build: requires a command and tree OID");
+        eprintln!("  elench build <tree_oid> -- <command...>");
+        eprintln!();
+        eprintln!("Runs the build command, captures the exit code and");
+        eprintln!("artifact digest (SHA-256 of stdout), and emits a");
+        eprintln!("build provenance claim with origin.kind = harness-observed.");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+
+    let cmd_args: Vec<&str> = if let Some(pos) = args.iter().position(|a| a == "--") {
+        args[pos + 1..].iter().map(String::as_str).collect()
+    } else if args.len() > 1 {
+        args[1..].iter().map(String::as_str).collect()
+    } else {
+        eprintln!("elench build: no command after tree OID (use -- to separate)");
+        std::process::exit(1);
+    };
+
+    if cmd_args.is_empty() {
+        eprintln!("elench build: empty command");
+        std::process::exit(1);
+    }
+
+    let output = std::process::Command::new(cmd_args[0])
+        .args(&cmd_args[1..])
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("elench build: failed to execute: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let digest = elench_store::Oid::from_blob_data(&output.stdout);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+
+    let claim = elench_claim::Claim {
+        id: elench_claim::ClaimId::new(
+            "cl_0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap(),
+        kind: elench_claim::ClaimKind::Verification,
+        target: vec![],
+        assertion: elench_claim::AssertionForm::Annotation {
+            text: format!("build provenance: exit={exit_code}, digest={digest}"),
+        },
+        origin: elench_claim::Origin {
+            kind: elench_claim::OriginKind::HarnessObserved,
+            producer: elench_claim::Producer {
+                id: "elench-build-harness".into(),
+                session_id: Some(format!("build-{now}")),
+                hermeticity: Some(elench_claim::Hermeticity::None),
+            },
+        },
+        anchor: elench_claim::Anchor {
+            tree: tree.clone(),
+            strategy: elench_claim::AnchorStrategy::Multi,
+            path: None,
+            range: None,
+            symbol: None,
+            content_digest: Some(digest.as_str().to_string()),
+        },
+        timestamp: now,
+        evidence: vec![elench_claim::Evidence {
+            kind: elench_claim::EvidenceKind::ProcessExit,
+            digest: Some(digest.as_str().to_string()),
+            exit_code: Some(i64::from(exit_code)),
+            uri: None,
+        }],
+        depends_on: vec![],
+    };
+
+    let computed_id = elench_claim::ClaimId::from_content(&claim);
+
+    println!("build provenance emitted:");
+    println!("  id:       {computed_id}");
+    println!("  tree:     {tree}");
+    println!("  kind:     {}", claim.kind_str());
+    println!("  origin:   {:?}", claim.origin.kind);
+    println!("  producer: {}", claim.origin.producer.id);
+    println!();
+    println!("build result:");
+    println!("  exit code: {exit_code}");
+    println!("  digest:    {digest}");
+    println!("  stdout:    {} bytes", stdout.len());
+    println!("  stderr:    {} bytes", stderr.len());
+    if !stderr.is_empty() {
+        println!("  stderr (first 500 chars):");
+        println!("    {}", &stderr[..stderr.len().min(500)]);
+    }
+    println!();
+    println!("(PREDICATE_TYPE_BUILD: origin.kind = harness-observed)");
+    println!("(INV-22: same envelope format as agent claims)");
+    println!("(condition 4: K independent producers sign statements with this digest)");
 }
 
 // ---------------------------------------------------------------------------

@@ -72,6 +72,114 @@ pub enum Resolution {
     },
 }
 
+// ---------------------------------------------------------------------------
+// Reconciliation — detect anchors that no longer resolve
+// ---------------------------------------------------------------------------
+
+/// A claim whose anchor no longer resolves after a tree change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriftedClaim {
+    /// The claim ID.
+    pub claim_id: String,
+    /// The tree OID the claim is anchored to.
+    pub tree: String,
+    /// The anchor's path (if any).
+    pub path: Option<String>,
+    /// The anchor's symbol (if any).
+    pub symbol: Option<String>,
+    /// The resolution result (`Failed`, `Degraded`, or `WrongResolution`).
+    pub resolution: Resolution,
+}
+
+/// Result of reconciling claims against a tree.
+///
+/// A reconciliation pass detects claims whose anchors no longer
+/// resolve after a tree change. It reports affected claims — it
+/// does NOT auto-fix. The human (or agent) must re-anchor or
+/// falsify.
+///
+/// This is the reconciliation pass referenced in A-A02 and
+/// FM-P2-03. It does not arbitrate who writes; it reports what
+/// drifted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconciliationReport {
+    /// The tree OID that was reconciled.
+    pub tree: String,
+    /// Claims whose anchors still resolve correctly.
+    pub intact: Vec<String>,
+    /// Claims whose anchors no longer resolve.
+    pub drifted: Vec<DriftedClaim>,
+}
+
+impl ReconciliationReport {
+    /// Number of drifted claims.
+    #[must_use]
+    pub fn drift_count(&self) -> usize {
+        self.drifted.len()
+    }
+
+    /// Number of intact claims.
+    #[must_use]
+    pub fn intact_count(&self) -> usize {
+        self.intact.len()
+    }
+
+    /// True if any claims drifted.
+    #[must_use]
+    pub fn has_drift(&self) -> bool {
+        !self.drifted.is_empty()
+    }
+}
+
+/// Reconcile claims against a tree.
+///
+/// For each claim anchored to `tree`, resolve the anchor using
+/// the multi strategy. Claims that fail to resolve or are
+/// degraded are reported as drifted.
+///
+/// This is a read-only operation — it does not modify claims or
+/// the tree. The human (or agent) must re-anchor or falsify
+/// drifted claims.
+///
+/// # Errors
+///
+/// Returns [`AnchorError`] if any anchor's strategy is not `Multi`.
+pub fn reconcile(
+    tree: &str,
+    log: &[elench_claim::Claim],
+) -> Result<ReconciliationReport, AnchorError> {
+    let tree_claims: Vec<&elench_claim::Claim> =
+        log.iter().filter(|c| c.anchor.tree == tree).collect();
+
+    let mut intact = Vec::new();
+    let mut drifted = Vec::new();
+
+    for claim in &tree_claims {
+        match resolve(&claim.anchor)? {
+            _res @ Resolution::Correct { .. } => {
+                intact.push(claim.id.as_str().to_string());
+            }
+            res @ (Resolution::Degraded { .. }
+            | Resolution::Failed { .. }
+            | Resolution::WrongResolution { .. }) => {
+                drifted.push(DriftedClaim {
+                    claim_id: claim.id.as_str().to_string(),
+                    tree: claim.anchor.tree.clone(),
+                    path: claim.anchor.path.clone(),
+                    symbol: claim.anchor.symbol.clone(),
+                    resolution: res,
+                });
+            }
+        }
+    }
+
+    Ok(ReconciliationReport {
+        tree: tree.to_string(),
+        intact,
+        drifted,
+    })
+}
+
 /// Which strategy was used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StrategyName {
@@ -288,7 +396,7 @@ fn resolve_content_digest(anchor: &Anchor) -> StrategyOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elench_claim::AnchorStrategy;
+    use elench_claim::{AnchorStrategy, ClaimId, ClaimKind};
 
     fn make_anchor(
         path: Option<&str>,
@@ -302,6 +410,130 @@ mod tests {
             range: Some([1, 10]),
             symbol: symbol.map(String::from),
             content_digest: content_digest.map(String::from),
+        }
+    }
+
+    fn make_claim_with_anchor(id: &str, tree: &str, mut anchor: Anchor) -> elench_claim::Claim {
+        anchor.tree = tree.into();
+        elench_claim::Claim {
+            id: ClaimId::new(id).unwrap(),
+            kind: ClaimKind::Assertion,
+            target: vec![],
+            assertion: elench_claim::AssertionForm::Annotation {
+                text: "test".into(),
+            },
+            origin: elench_claim::Origin {
+                kind: elench_claim::OriginKind::AgentAsserted,
+                producer: elench_claim::Producer {
+                    id: "test-producer".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor,
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        }
+    }
+
+    // --- Reconciliation tests ---
+
+    #[test]
+    fn scenario_reconcile_all_intact() {
+        let anchor = make_anchor(
+            Some("src/main.rs"),
+            Some("src/main.rs"),
+            Some("src/main.rs"),
+        );
+        let claim = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000070",
+            "abc123",
+            anchor,
+        );
+        let log = vec![claim];
+        let report = reconcile("abc123", &log).unwrap();
+        assert_eq!(report.intact_count(), 1);
+        assert_eq!(report.drift_count(), 0);
+        assert!(!report.has_drift());
+    }
+
+    #[test]
+    fn scenario_reconcile_all_drifted() {
+        let anchor = make_anchor(None, None, None);
+        let claim = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000071",
+            "abc123",
+            anchor,
+        );
+        let log = vec![claim];
+        let report = reconcile("abc123", &log).unwrap();
+        assert_eq!(report.intact_count(), 0);
+        assert_eq!(report.drift_count(), 1);
+        assert!(report.has_drift());
+        match &report.drifted[0].resolution {
+            Resolution::Failed { reasons } => {
+                assert_eq!(reasons.len(), 3);
+            }
+            _ => panic!("expected Failed"),
+        }
+    }
+
+    #[test]
+    fn scenario_reconcile_mixed() {
+        let intact_anchor = make_anchor(
+            Some("src/main.rs"),
+            Some("src/main.rs"),
+            Some("src/main.rs"),
+        );
+        let drifted_anchor = make_anchor(None, None, None);
+        let claim_a = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000072",
+            "abc123",
+            intact_anchor,
+        );
+        let claim_b = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000073",
+            "abc123",
+            drifted_anchor,
+        );
+        let log = vec![claim_a, claim_b];
+        let report = reconcile("abc123", &log).unwrap();
+        assert_eq!(report.intact_count(), 1);
+        assert_eq!(report.drift_count(), 1);
+    }
+
+    #[test]
+    fn scenario_reconcile_other_tree_not_affected() {
+        let anchor = make_anchor(Some("src/main.rs"), Some("main"), Some("digest"));
+        let claim = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000074",
+            "other_tree",
+            anchor,
+        );
+        let log = vec![claim];
+        let report = reconcile("abc123", &log).unwrap();
+        assert_eq!(report.intact_count(), 0);
+        assert_eq!(report.drift_count(), 0);
+        assert!(!report.has_drift());
+    }
+
+    #[test]
+    fn scenario_reconcile_degraded_reported() {
+        let anchor = make_anchor(Some("src/main.rs"), Some("other.rs"), None);
+        let claim = make_claim_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000075",
+            "abc123",
+            anchor,
+        );
+        let log = vec![claim];
+        let report = reconcile("abc123", &log).unwrap();
+        assert_eq!(report.drift_count(), 1);
+        match &report.drifted[0].resolution {
+            Resolution::Degraded { disagreements } => {
+                assert_eq!(disagreements.len(), 2);
+            }
+            _ => panic!("expected Degraded"),
         }
     }
 
