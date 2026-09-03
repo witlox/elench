@@ -61,16 +61,18 @@ docs/release-policy.md for single-builder. This is a smaller product.
 
 ### FM-P1-02: Claim log grows without bound
 
-No pruning story exists. On an active repository, the log accumulates
+~~No pruning story exists. On an active repository, the log accumulates
 without limit. Compaction may violate R1 (append-only, no
-overwriting).
+overwriting).~~
 
-**Gated by:** None (open question)
-**Handling:** Flagged in docs/problem.md §Open questions. Not yet
-addressed. Any compaction scheme must preserve R1: prior status
-remains visible, status is computed not stored.
-**Recovery:** Unknown. May require a separate compaction mechanism
-that respects append-only semantics.
+**RESOLVED.** Compaction is a manual, destructive operator action
+(A-A10). `elench log <claims.json>` provides statistics (total, kind
+distribution, status distribution, noise ratio, dependsOn density).
+`elench compact <claims.json> --before <ts>` retires all claims
+before the cut-off, freezing their statuses as a snapshot. The
+compaction record carries frozen statuses forward. Active claims
+continue to be revocable (R1 preserved for active claims,
+deliberately violated for retired ones).
 
 ### FM-P1-03: Non-deterministic git projection
 
@@ -93,40 +95,42 @@ mapping. Git's object format is not the problem.
 
 ### FM-P2-01: Residue acceptance rubber stamp
 
-The human key signing over unevaluated gaps becomes a formality rather
+~~The human key signing over unevaluated gaps becomes a formality rather
 than a genuine acceptance. The R5 terminator fails — not because it is
-wrong, but because the human rubber-stamps it.
+wrong, but because the human rubber-stamps it.~~
 
-**Gated by:** None (open question)
-**Handling:** Flagged in docs/problem.md §Open questions. This is the
-human-in-the-loop reappearing at the release boundary. It is
-deliberate, but it is the obvious failure point.
-**Recovery:** Unknown. May require friction (named gaps, not blanket
-acceptance) or accountability mechanisms.
+**RESOLVED.** Review mode (A-A11) forces the human to look before
+stamping. `elench review <tree> <claims.json>` shows all
+unevaluated claims with their content (form, language, source,
+producer). The human must name each gap before `elench accept`
+issues a residue-acceptance. This adds real friction without
+multi-party complexity.
 
 ### FM-P2-02: Contradictory predicates, neither falsified
 
-Two agents assert contradictory predicates about the same span. Neither
-is falsified. The tree's status is undefined.
+~~Two agents assert contradictory predicates about the same span. Neither
+is falsified. The tree's status is undefined.~~
 
-**Gated by:** None (open question)
-**Handling:** Flagged in docs/problem.md §Open questions. Not yet
-addressed. Possible approaches: last-writer-wins (violates
-append-only spirit), require human adjudication, or treat
-contradiction as a new status.
-**Recovery:** Unknown. Requires a policy decision.
+**RESOLVED.** Last-writer-wins (by timestamp). The conflict is
+detected and reported by `elench conflicts <tree> <claims.json>`
+(A-A12). The gate evaluates against the winning predicate and
+includes the conflict as a warning (not a failure — the winning
+predicate still gates). Partial block: only the affected path (same
+anchor) is blocked; other paths evaluate normally. The human is
+expected to resolve: falsify one or both predicates.
 
 ### FM-P2-03: Reconciliation pass not triggered
 
-A tree change lands that invalidates claims (moves code out from under
+~~A tree change lands that invalidates claims (moves code out from under
 anchors). Nothing forces the claim log to notice. The log and the tree
-drift apart silently.
+drift apart silently.~~
 
-**Gated by:** None (ADR-0002 consequence)
-**Handling:** A reconciliation pass is required and does not exist yet.
-The human view (blame-to-claim) is a separate tool, not scoped here.
-**Recovery:** Build a reconciliation pass that detects anchor drift and
-reports it. Does not auto-fix; only reports.
+**RESOLVED.** `elench-anchor::reconcile(tree, log)` detects claims
+whose anchors no longer resolve after a tree change. Reports
+affected claims as `DriftedClaim` (with path, symbol, resolution
+result). Read-only: does NOT auto-fix. The human (or agent) must
+re-anchor or falsify. CLI: `elench reconcile <tree> <claims.json>`
+(future — currently library-only).
 
 ## P3 — Low, known limitation
 

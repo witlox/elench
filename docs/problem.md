@@ -127,15 +127,36 @@ not in git's object format. Addressed in ADR-0007.
 
 ## Open questions
 
-- Does the claim log converge, or does it grow without bound on an
+All three original open questions are now **resolved**. Details below.
+
+- ~~Does the claim log converge, or does it grow without bound on an
   active repository? No pruning story exists. Compaction may violate
-  R1.
-- Who signs the residue acceptance under R5, and what stops it becoming
-  a rubber stamp? This is the human-in-the-loop reappearing at the
-  release boundary. It is deliberate, but it is also the obvious
-  failure point.
-- If two agents assert contradictory predicates and neither is
-  falsified, what is the tree's status? Currently undefined.
+  R1.~~ **Resolved (A-A10).** Compaction is a manual, destructive
+  operator action. `elench log <claims.json>` provides statistics
+  (total, kind distribution, status distribution, noise ratio,
+  dependsOn density) and `elench compact <claims.json> --before <ts>`
+  retires all claims before the cut-off, freezing their statuses as
+  a snapshot. The compaction record carries frozen statuses forward.
+  Active claims continue to be revocable (R1 preserved for active
+  claims, deliberately violated for retired ones).
+
+- ~~Who signs the residue acceptance under R5, and what stops it
+  becoming a rubber stamp?~~ **Resolved (A-A11).** `elench review
+  <tree> <claims.json>` shows all unevaluated claims with their
+  content (form, language, source, producer). The human must name
+  each gap before `elench accept` issues a residue-acceptance. This
+  adds real friction without multi-party complexity.
+
+- ~~If two agents assert contradictory predicates and neither is
+  falsified, what is the tree's status?~~ **Resolved (A-A12).**
+  Last-writer-wins (by timestamp). The conflict is detected and
+  reported by `elench conflicts <tree> <claims.json>`. The gate
+  evaluates against the winning predicate and includes the conflict
+  as a warning (not a failure — the winning predicate still gates).
+  The human is expected to resolve: falsify one or both predicates.
+  Partial block: only the affected path (same anchor) is blocked by
+  the conflict; other paths evaluate normally.
+
 - What is the granularity of a git-projection commit? Answered by
   ADR-0007: one commit per tree-changing claim. The density risk (too
   verbose for human consumption) is accepted as A-A09; a session-level

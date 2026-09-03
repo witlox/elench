@@ -80,21 +80,43 @@ dense for human consumption; a session-level aggregation view may be
 needed but is not blocking.
 *Source:* ADR-0007, docs/problem.md §Open questions
 
+**A-A10.** Compaction is a manual, destructive operator action.
+`elench log` provides statistics (total, kind distribution, status
+distribution, noise ratio, dependsOn density) and `elench compact
+--before <ts>` retires all claims before the cut-off, freezing their
+statuses as a snapshot. The compaction record carries frozen statuses
+forward. Active claims continue to be revocable (R1 preserved for
+active claims, deliberately violated for retired ones).
+*Source:* docs/problem.md §Open questions (resolved)
+
+**A-A11.** Review mode forces the human to look before stamping.
+`elench review <tree> <claims.json>` shows all unevaluated claims
+with their content. The human must name each gap before `elench
+accept` issues a residue-acceptance. Adds real friction without
+multi-party complexity.
+*Source:* docs/problem.md §Open questions (resolved)
+
+**A-A12.** Contradictory predicates: last-writer-wins (by timestamp).
+The conflict is detected and reported by `elench conflicts`. The
+gate evaluates against the winning predicate and includes the
+conflict as a warning (not a failure). Partial block: only the
+affected path (same anchor) is blocked; other paths evaluate
+normally. The human is expected to resolve: falsify one or both.
+*Source:* docs/problem.md §Open questions (resolved)
+
 ## Unknown
 
-**A-U01.** Does the claim log converge, or grow without bound on an
-active repository? No pruning story exists. Compaction may violate R1.
-*Source:* docs/problem.md §Open questions
+**A-U01.** ~~Does the claim log converge, or grow without bound on an
+active repository?~~ **RESOLVED → A-A10.** Compaction is manual,
+destructive, with log stats + perf metrics.
 
-**A-U02.** Who signs the residue acceptance under R5, and what stops
-it becoming a rubber stamp? This is the human-in-the-loop reappearing
-at the release boundary. It is deliberate, but it is the obvious
-failure point.
-*Source:* docs/problem.md §Open questions
+**A-U02.** ~~Who signs the residue acceptance under R5, and what stops
+it becoming a rubber stamp?~~ **RESOLVED → A-A11.** Review mode
+forces the human to look before stamping.
 
-**A-U03.** If two agents assert contradictory predicates and neither
-is falsified, what is the tree's status? Currently undefined.
-*Source:* docs/problem.md §Open questions
+**A-U03.** ~~If two agents assert contradictory predicates and neither is
+falsified, what is the tree's status?~~ **RESOLVED → A-A12.**
+Last-writer-wins, conflict flagged for resolution, partial block.
 
 **A-U04.** What fraction of claims are predicates vs annotations?
 (BC1/E0). If the ratio is < 0.15, elench is a search index over agent
