@@ -1,6 +1,6 @@
 //! # elench-envelope
 //!
-//! DSSE envelopes carrying in-toto statements.
+//! DSSE envelopes carrying in-toto statements, signed with Ed25519.
 //!
 //! Agent claims and build provenance share the same envelope format,
 //! signing path, and verification library (ADR-0003). This crate
@@ -8,25 +8,17 @@
 //! signer identity (from the envelope) and producer identity (from the
 //! claim payload), which is a different thing (R2).
 //!
-//! ## DSSE format
+//! ## Crypto
 //!
-//! DSSE (Dead Simple Signing Envelope) is a JSON envelope that wraps a
-//! payload and its signature. The in-toto Statement is the payload.
-//! The envelope provides:
+//! Signing uses Ed25519 via `ed25519-dalek`. Keys are:
+//! - `SigningKey`: 32-byte private key, generates 64-byte signatures
+//! - `VerifyingKey`: 32-byte public key, verifies 64-byte signatures
 //!
-//! - `payloadType`: identifies the payload format (URI)
-//! - `payload`: base64-encoded in-toto Statement
-//! - `signatures`: list of { keyid, sig } pairs
-//!
-//! ## Signer vs Producer
-//!
-//! The **signer** is the key that signed the DSSE envelope. The
-//! **producer** is the entity that produced the claim (from
-//! `claim.origin.producer.id`). These are different things (R2). The
-//! envelope verification extracts the signer's key ID; the validator
-//! (`elench-claim::validate_claim`) cross-checks it against the
-//! producer's asserted origin.kind.
+//! Key IDs are SHA-256 of the public key (16 hex chars, configurable).
+//! The PAE (pre-authentication encoding) is the DSSE v1 format:
+//! `DSSEv1 <payload_type_len> <payload_type> <payload_len> <payload>`
 
+use ed25519_dalek::{Signer, Verifier as EdVerifier};
 use elench_claim::{Claim, SignerEntity, SignerIdentity};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -43,54 +35,151 @@ pub const PREDICATE_TYPE_AGENT: &str = "https://elench.dev/predicate/agent-claim
 pub const PREDICATE_TYPE_BUILD: &str = "https://elench.dev/predicate/build-provenance/v0.1";
 
 // ---------------------------------------------------------------------------
-// Signing key (minimal, for Phase 2)
+// Signing key — Ed25519 via ed25519-dalek
 // ---------------------------------------------------------------------------
 
-/// A signing key. In Phase 2, this is a simple key pair identified by
-/// a key ID. A full implementation would use Ed25519 or ECDSA; for now
-/// we use a deterministic SHA-256-based "signature" that is NOT
-/// cryptographically secure but is sufficient for testing the
-/// envelope format and signer/producer distinction.
+/// An Ed25519 signing key. Carries the private key and the entity
+/// type it belongs to. Used to sign DSSE envelopes.
 ///
 /// INV-22: same format as build provenance. Agent claims and build
-/// provenance use the same envelope, signing path, and verification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// provenance use the same signing path.
+#[derive(Debug, Clone)]
 pub struct SigningKey {
-    /// Key identifier (e.g., "harness-key-1", "agent-model-v3", "human-alice").
+    /// Key identifier (SHA-256 of public key, first 16 hex chars).
     pub key_id: String,
     /// The entity type this key belongs to.
     pub entity: SignerEntity,
-    /// Secret key material (for signing). In a real implementation,
-    /// this would be a private key. Here it's a simple secret string.
-    pub secret: String,
+    /// Ed25519 signing key (private).
+    pub signing_key: ed25519_dalek::SigningKey,
 }
 
 impl SigningKey {
-    /// Create a new signing key.
+    /// Generate a new Ed25519 keypair with the given entity type.
     #[must_use]
-    pub fn new(key_id: impl Into<String>, entity: SignerEntity, secret: impl Into<String>) -> Self {
+    pub fn generate(entity: SignerEntity) -> Self {
+        let mut rng = rand::rng();
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
+        let public = signing_key.verifying_key();
+        let key_id = key_id_from_public(&public);
         Self {
-            key_id: key_id.into(),
+            key_id,
             entity,
-            secret: secret.into(),
+            signing_key,
         }
     }
 
-    /// Derive the corresponding verifier (public key equivalent).
+    /// Create a signing key from raw bytes (32 bytes).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] if the bytes are not 32 bytes.
+    pub fn from_bytes(
+        key_id: impl Into<String>,
+        entity: SignerEntity,
+        bytes: &[u8],
+    ) -> Result<Self, EnvelopeError> {
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| EnvelopeError::InvalidKey("expected 32 bytes".into()))?;
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&arr);
+        Ok(Self {
+            key_id: key_id.into(),
+            entity,
+            signing_key,
+        })
+    }
+
+    /// Serialize the private key to hex (64 chars).
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        hex_encode(&self.signing_key.to_bytes())
+    }
+
+    /// Deserialize a signing key from hex (64 chars).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] if the hex is invalid or not 32 bytes.
+    pub fn from_hex(
+        key_id: impl Into<String>,
+        entity: SignerEntity,
+        hex: &str,
+    ) -> Result<Self, EnvelopeError> {
+        let bytes =
+            hex_decode(hex).ok_or_else(|| EnvelopeError::InvalidKey("invalid hex".into()))?;
+        Self::from_bytes(key_id, entity, &bytes)
+    }
+
+    /// Derive the corresponding verifier (public key).
     #[must_use]
     pub fn verifier(&self) -> VerifyingKey {
         VerifyingKey {
             key_id: self.key_id.clone(),
             entity: self.entity.clone(),
+            verifying_key: self.signing_key.verifying_key(),
         }
     }
 }
 
-/// A verifying key (public key equivalent).
+impl PartialEq for SigningKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.key_id == other.key_id
+            && self.entity == other.entity
+            && self.signing_key.to_bytes() == other.signing_key.to_bytes()
+    }
+}
+
+impl Eq for SigningKey {}
+
+/// A verifying key (public key). Used to verify DSSE envelope
+/// signatures without needing the private key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyingKey {
+    /// Key identifier (SHA-256 of public key, first 16 hex chars).
     pub key_id: String,
+    /// The entity type this key belongs to.
     pub entity: SignerEntity,
+    /// Ed25519 verifying key (public).
+    pub verifying_key: ed25519_dalek::VerifyingKey,
+}
+
+impl VerifyingKey {
+    /// Serialize the public key to hex (64 chars).
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        hex_encode(&self.verifying_key.to_bytes())
+    }
+
+    /// Deserialize a verifying key from hex (64 chars).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] if the hex is invalid or not 32 bytes.
+    pub fn from_hex(
+        key_id: impl Into<String>,
+        entity: SignerEntity,
+        hex: &str,
+    ) -> Result<Self, EnvelopeError> {
+        let bytes =
+            hex_decode(hex).ok_or_else(|| EnvelopeError::InvalidKey("invalid hex".into()))?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| EnvelopeError::InvalidKey("expected 32 bytes".into()))?;
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&arr)
+            .map_err(|e| EnvelopeError::InvalidKey(format!("invalid public key: {e}")))?;
+        Ok(Self {
+            key_id: key_id.into(),
+            entity,
+            verifying_key,
+        })
+    }
+}
+
+/// Compute a key ID from a public key (SHA-256, first 16 hex chars).
+#[must_use]
+fn key_id_from_public(public: &ed25519_dalek::VerifyingKey) -> String {
+    let hash = Sha256::digest(public.to_bytes());
+    hex_encode(&hash[..8])
 }
 
 // ---------------------------------------------------------------------------
@@ -208,26 +297,37 @@ impl Envelope {
 }
 
 // ---------------------------------------------------------------------------
-// Sign and Verify
+// Sign and Verify — Ed25519 over DSSE PAE
 // ---------------------------------------------------------------------------
 
-/// Sign a claim payload in a DSSE envelope.
+/// Compute the DSSE v1 Pre-Authentication Encoding (PAE).
 ///
-/// The claim is wrapped in an in-toto Statement, base64-encoded, and
-/// signed with the provided key. The predicateType is determined by
-/// the signer's entity type:
-/// - Harness: `PREDICATE_TYPE_AGENT` (harness-observed claims)
-/// - Agent: `PREDICATE_TYPE_AGENT`
-/// - Human: `PREDICATE_TYPE_AGENT` (human-asserted claims)
+/// PAE = `DSSEv1 <payload_type_len> <payload_type> <payload_len> <payload>`
 ///
-/// Build provenance uses `PREDICATE_TYPE_BUILD` (future, when the
-/// harness emits build statements).
+/// The payload is the hex-encoded in-toto Statement JSON.
+#[must_use]
+fn compute_pae(payload_type: &str, payload: &str) -> Vec<u8> {
+    format!(
+        "DSSEv1 {} {} {} {}",
+        payload_type.len(),
+        payload_type,
+        payload.len(),
+        payload
+    )
+    .into_bytes()
+}
+
+/// Sign a claim payload in a DSSE envelope using Ed25519.
 ///
-/// INV-22: same format as build provenance.
+/// The claim is wrapped in an in-toto Statement, hex-encoded, and
+/// signed over the DSSE PAE using Ed25519.
+///
+/// INV-22: same format as build provenance. Agent claims and build
+/// provenance use the same signing path and envelope.
 #[must_use]
 pub fn sign(claim: &Claim, signing_key: &SigningKey) -> Envelope {
     let statement = Statement {
-        statement_type: "<https://in-toto.io/Statement/v1>".into(),
+        statement_type: "https://in-toto.io/Statement/v1".into(),
         subject: vec![Subject {
             name: claim.anchor.tree.clone(),
             digest: HashMapDigest {
@@ -241,27 +341,25 @@ pub fn sign(claim: &Claim, signing_key: &SigningKey) -> Envelope {
     let payload_json = serde_json::to_vec(&statement).unwrap_or_default();
     let payload_hex = hex_encode(&payload_json);
 
-    // "Sign" the PAE (pre-authentication encoding).
-    // For Phase 2, the PAE is a simple concatenation of
-    // payload_type and payload. A full implementation would
-    // follow DSSE v1 spec exactly.
-    let pae = format!("{PREDICATE_TYPE_AGENT}{payload_hex}");
-    let sig = deterministic_sign(&pae, &signing_key.secret);
+    let pae = compute_pae(PREDICATE_TYPE_AGENT, &payload_hex);
+    let sig = signing_key.signing_key.sign(&pae);
+    let sig_hex = hex_encode(&sig.to_bytes());
 
     Envelope {
         payload_type: PREDICATE_TYPE_AGENT.into(),
         payload: payload_hex,
         signatures: vec![Signature {
             keyid: signing_key.key_id.clone(),
-            sig,
+            sig: sig_hex,
         }],
     }
 }
 
-/// Verify a DSSE envelope's signature and extract the claim.
+/// Verify a DSSE envelope's Ed25519 signature and extract the claim.
 ///
-/// INV-22: same format as build provenance. Agent claims and build
-/// provenance use the same verification path.
+/// Verification uses only the public key (`VerifyingKey`). No private
+/// keys or secrets are needed — the verifier does not trust the
+/// signer, only the math (INV-22, R2).
 ///
 /// # Errors
 ///
@@ -271,7 +369,6 @@ pub fn sign(claim: &Claim, signing_key: &SigningKey) -> Envelope {
 pub fn verify(
     envelope: &Envelope,
     keys: &[VerifyingKey],
-    secrets: &[(String, String)], // (key_id, secret) pairs for verification
 ) -> Result<(Claim, SignerIdentity), EnvelopeError> {
     // 1. Check predicateType is recognised
     if envelope.payload_type != PREDICATE_TYPE_AGENT
@@ -282,28 +379,34 @@ pub fn verify(
         ));
     }
 
-    // 2. Extract signer identity
-    let signer = envelope.signer_identity(keys)?;
-
-    // 3. Verify signature
+    // 2. Extract signer identity from the key registry
     let sig = envelope
         .signatures
         .first()
         .ok_or(EnvelopeError::NoSignature)?;
 
-    let secret = secrets
+    let key = keys
         .iter()
-        .find(|(k, _)| k == &sig.keyid)
-        .map(|(_, s)| s.as_str())
+        .find(|k| k.key_id == sig.keyid)
         .ok_or_else(|| EnvelopeError::UnknownSigner(sig.keyid.clone()))?;
 
-    // Reconstruct PAE and verify (same format as sign())
-    let pae = format!("{}{}", envelope.payload_type, envelope.payload);
+    let signer = SignerIdentity {
+        key_id: key.key_id.clone(),
+        entity: key.entity.clone(),
+    };
 
-    let expected_sig = deterministic_sign(&pae, secret);
-    if expected_sig != sig.sig {
-        return Err(EnvelopeError::InvalidSignature);
-    }
+    // 3. Verify Ed25519 signature over the PAE
+    let sig_bytes = hex_decode(&sig.sig).ok_or(EnvelopeError::InvalidSignature)?;
+    let sig_arr: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| EnvelopeError::InvalidSignature)?;
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+
+    let pae = compute_pae(&envelope.payload_type, &envelope.payload);
+    key.verifying_key
+        .verify(&pae, &signature)
+        .map_err(|_| EnvelopeError::InvalidSignature)?;
 
     // 4. Decode and extract claim
     let statement = envelope.decode_payload()?;
@@ -591,6 +694,9 @@ pub enum EnvelopeError {
 
     #[error("malformed envelope: {0}")]
     MalformedEnvelope(String),
+
+    #[error("invalid key: {0}")]
+    InvalidKey(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -629,18 +735,6 @@ fn hex_val(c: u8) -> Option<u8> {
     }
 }
 
-/// Deterministic "signature" — NOT cryptographically secure.
-/// For Phase 2, this is sufficient to test the envelope format.
-/// A real implementation would use Ed25519 or ECDSA.
-fn deterministic_sign(pae: &str, secret: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(pae.as_bytes());
-    hasher.update(secret.as_bytes());
-    let hash = hasher.finalize();
-    hex_encode(&hash)
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -684,7 +778,7 @@ mod tests {
     }
 
     fn make_test_key() -> SigningKey {
-        SigningKey::new("agent-key-1", SignerEntity::Agent, "secret-secret")
+        SigningKey::generate(SignerEntity::Agent)
     }
 
     // --- Sign and verify round-trip ---
@@ -696,7 +790,10 @@ mod tests {
         let envelope = sign(&claim, &key);
         assert_eq!(envelope.payload_type, PREDICATE_TYPE_AGENT);
         assert_eq!(envelope.signatures.len(), 1);
-        assert_eq!(envelope.signatures[0].keyid, "agent-key-1");
+        // Key ID is derived from the public key (16 hex chars)
+        assert_eq!(envelope.signatures[0].keyid.len(), 16);
+        // Signature is 128 hex chars (64 bytes Ed25519)
+        assert_eq!(envelope.signatures[0].sig.len(), 128);
     }
 
     #[test]
@@ -706,12 +803,9 @@ mod tests {
         let envelope = sign(&claim, &key);
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let (extracted_claim, signer) = verify(&envelope, &keys, &secrets).unwrap();
+        let (extracted_claim, signer) = verify(&envelope, &keys).unwrap();
         assert_eq!(extracted_claim.id, claim.id);
         assert_eq!(extracted_claim.kind, claim.kind);
-        assert_eq!(signer.key_id, "agent-key-1");
         assert_eq!(signer.entity, SignerEntity::Agent);
     }
 
@@ -720,12 +814,11 @@ mod tests {
         let claim = make_test_claim();
         let key = make_test_key();
         let mut envelope = sign(&claim, &key);
-        envelope.signatures[0].sig = "invalid".to_string();
+        // Tamper with the signature
+        envelope.signatures[0].sig = "0".repeat(128);
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let result = verify(&envelope, &keys, &secrets);
+        let result = verify(&envelope, &keys);
         assert_eq!(result, Err(EnvelopeError::InvalidSignature));
     }
 
@@ -737,26 +830,13 @@ mod tests {
 
         // No keys registered
         let keys: Vec<VerifyingKey> = vec![];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let result = verify(&envelope, &keys, &secrets);
+        let result = verify(&envelope, &keys);
         assert_eq!(
             result,
-            Err(EnvelopeError::UnknownSigner("agent-key-1".into()))
+            Err(EnvelopeError::UnknownSigner(
+                envelope.signatures[0].keyid.clone()
+            ))
         );
-    }
-
-    #[test]
-    fn scenario_verify_rejects_wrong_secret() {
-        let claim = make_test_claim();
-        let key = make_test_key();
-        let envelope = sign(&claim, &key);
-
-        let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "wrong-secret".to_string())];
-
-        let result = verify(&envelope, &keys, &secrets);
-        assert_eq!(result, Err(EnvelopeError::InvalidSignature));
     }
 
     #[test]
@@ -767,10 +847,27 @@ mod tests {
         envelope.signatures.clear();
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let result = verify(&envelope, &keys, &secrets);
+        let result = verify(&envelope, &keys);
         assert_eq!(result, Err(EnvelopeError::NoSignature));
+    }
+
+    #[test]
+    fn scenario_verify_rejects_wrong_key() {
+        let claim = make_test_claim();
+        let key = make_test_key();
+        let envelope = sign(&claim, &key);
+
+        // Different key (wrong public key for the signature)
+        let wrong_key = SigningKey::generate(SignerEntity::Agent);
+        let keys = vec![wrong_key.verifier()];
+        // The key_id won't match, so it's UnknownSigner
+        let result = verify(&envelope, &keys);
+        assert_eq!(
+            result,
+            Err(EnvelopeError::UnknownSigner(
+                envelope.signatures[0].keyid.clone()
+            ))
+        );
     }
 
     #[test]
@@ -781,9 +878,7 @@ mod tests {
         envelope.payload_type = "https://example.com/unknown".into();
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let result = verify(&envelope, &keys, &secrets);
+        let result = verify(&envelope, &keys);
         assert_eq!(
             result,
             Err(EnvelopeError::UnsupportedPredicateType(
@@ -792,61 +887,44 @@ mod tests {
         );
     }
 
-    // --- INV-22: same format for agent claims and build provenance ---
-
     #[test]
     fn scenario_inv22_agent_and_build_same_envelope_format() {
         let claim = make_test_claim();
 
-        let agent_key = SigningKey::new("agent-key", SignerEntity::Agent, "agent-secret");
-        let build_key = SigningKey::new("build-key", SignerEntity::Harness, "build-secret");
+        let agent_key = SigningKey::generate(SignerEntity::Agent);
+        let build_key = SigningKey::generate(SignerEntity::Harness);
 
         let agent_env = sign(&claim, &agent_key);
         let build_env = sign(&claim, &build_key);
 
         // Both use the same envelope structure (payloadType, payload, signatures)
         assert_eq!(agent_env.payload_type, PREDICATE_TYPE_AGENT);
-        assert_eq!(build_env.payload_type, PREDICATE_TYPE_AGENT); // Both use agent-claim for now
+        assert_eq!(build_env.payload_type, PREDICATE_TYPE_AGENT);
         assert_eq!(agent_env.signatures.len(), 1);
         assert_eq!(build_env.signatures.len(), 1);
 
         // Both can be verified with the same verify function
         let keys = vec![agent_key.verifier(), build_key.verifier()];
-        let secrets = vec![
-            ("agent-key".to_string(), "agent-secret".to_string()),
-            ("build-key".to_string(), "build-secret".to_string()),
-        ];
+        let (agent_claim, agent_signer) = verify(&agent_env, &keys).unwrap();
+        let (build_claim, build_signer) = verify(&build_env, &keys).unwrap();
 
-        let (agent_claim, agent_signer) = verify(&agent_env, &keys, &secrets).unwrap();
-        let (build_claim, build_signer) = verify(&build_env, &keys, &secrets).unwrap();
-
-        assert_eq!(agent_claim.id, build_claim.id); // Same claim content
+        assert_eq!(agent_claim.id, build_claim.id);
         assert_eq!(agent_signer.entity, SignerEntity::Agent);
         assert_eq!(build_signer.entity, SignerEntity::Harness);
     }
 
-    // --- Signer vs Producer distinction (R2) ---
-
     #[test]
     fn scenario_r2_signer_distinct_from_producer() {
         let claim = make_test_claim();
-        // Producer is "agent-model-v3" (from claim.origin.producer.id)
-        // Signer is "agent-key-1" (from envelope signature)
         let key = make_test_key();
         let envelope = sign(&claim, &key);
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let (extracted_claim, signer) = verify(&envelope, &keys, &secrets).unwrap();
+        let (extracted_claim, signer) = verify(&envelope, &keys).unwrap();
 
         // Signer (from envelope) != producer (from claim payload)
         assert_ne!(signer.key_id, extracted_claim.origin.producer.id);
-        assert_eq!(signer.key_id, "agent-key-1");
-        assert_eq!(extracted_claim.origin.producer.id, "agent-model-v3");
     }
-
-    // --- Predicate claim round-trip ---
 
     #[test]
     fn scenario_predicate_claim_round_trip() {
@@ -863,9 +941,7 @@ mod tests {
         let envelope = sign(&claim, &key);
 
         let keys = vec![key.verifier()];
-        let secrets = vec![("agent-key-1".to_string(), "secret-secret".to_string())];
-
-        let (extracted, _) = verify(&envelope, &keys, &secrets).unwrap();
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
         match extracted.assertion {
             AssertionForm::Predicate { expression } => {
                 assert_eq!(expression.language, "elench-predicate-v1");
@@ -875,28 +951,30 @@ mod tests {
         }
     }
 
-    // --- Hex tests ---
-
     #[test]
-    fn scenario_hex_round_trip() {
-        let data = b"Hello, World!";
-        let encoded = hex_encode(data);
-        let decoded = hex_decode(&encoded).unwrap();
-        assert_eq!(decoded, data);
-    }
+    fn scenario_key_generation_produces_valid_keypair() {
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let verifier = key.verifier();
 
-    #[test]
-    fn scenario_hex_known_value() {
-        // "hello" in hex is 68656c6c6f
-        assert_eq!(hex_encode(b"hello"), "68656c6c6f");
-    }
+        // Key ID should be 16 hex chars
+        assert_eq!(key.key_id.len(), 16);
+        assert!(key.key_id.chars().all(|c| c.is_ascii_hexdigit()));
 
-    // --- Harness signer can sign, agent can verify ---
+        // Public key hex should be 64 chars (32 bytes)
+        let pub_hex = verifier.to_hex();
+        assert_eq!(pub_hex.len(), 64);
+
+        // Private key hex should be 64 chars (32 bytes)
+        let priv_hex = key.to_hex();
+        assert_eq!(priv_hex.len(), 64);
+
+        // Round-trip: from_hex should produce same key
+        let restored = SigningKey::from_hex(&key.key_id, SignerEntity::Agent, &priv_hex).unwrap();
+        assert_eq!(restored, key);
+    }
 
     #[test]
     fn scenario_harness_signs_agent_claims_externally() {
-        // A harness signs a claim with `origin.kind` = agent-asserted
-        // (e.g., the harness observed the agent asserting something)
         let claim = Claim {
             id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000002")
                 .unwrap(),
@@ -926,15 +1004,12 @@ mod tests {
             depends_on: vec![],
         };
 
-        // Harness signs it (the harness is the signer, not the agent)
-        let harness_key = SigningKey::new("harness-key-1", SignerEntity::Harness, "harness-secret");
+        let harness_key = SigningKey::generate(SignerEntity::Harness);
         let envelope = sign(&claim, &harness_key);
 
         let keys = vec![harness_key.verifier()];
-        let secrets = vec![("harness-key-1".to_string(), "harness-secret".to_string())];
-
-        let (extracted, signer) = verify(&envelope, &keys, &secrets).unwrap();
-        assert_eq!(signer.entity, SignerEntity::Harness); // Signer is harness
-        assert_eq!(extracted.origin.kind, OriginKind::AgentAsserted); // Producer is agent
+        let (extracted, signer) = verify(&envelope, &keys).unwrap();
+        assert_eq!(signer.entity, SignerEntity::Harness);
+        assert_eq!(extracted.origin.kind, OriginKind::AgentAsserted);
     }
 }

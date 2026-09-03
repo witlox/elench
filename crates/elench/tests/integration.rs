@@ -8,7 +8,7 @@ use elench_claim::{
     Anchor, AnchorStrategy, AssertionForm, Claim, ClaimId, ClaimKind, Expression, Origin,
     OriginKind, Producer, SignerEntity, SignerIdentity,
 };
-use elench_envelope::{SigningKey, VerifyingKey, sign, verify};
+use elench_envelope::{SigningKey, sign, verify};
 use elench_gate::{Policy, VerdictResult, evaluate};
 use elench_projection::{git_log_oneline, synthesize};
 use elench_store::{MemoryStore as Store, StoreBackend};
@@ -92,7 +92,7 @@ fn interaction_1_claim_emission_to_store() {
     elench_claim::validate_claim(&claim, &signer, &[]).unwrap();
 
     // Sign the claim (elench-envelope)
-    let key = SigningKey::new("agent-key", SignerEntity::Agent, "secret");
+    let key = SigningKey::generate(SignerEntity::Agent);
     let _envelope = sign(&claim, &key);
 
     // Store the claim (elench-store)
@@ -301,16 +301,12 @@ fn interaction_5_envelope_verification_to_claim_emission() {
     let claim = make_predicate_claim(ID_A, TREE, 1_700_000_000);
 
     // Sign (elench-envelope)
-    let key = SigningKey::new("agent-key", SignerEntity::Agent, "agent-secret");
+    let key = SigningKey::generate(SignerEntity::Agent);
     let envelope = sign(&claim, &key);
 
     // Verify (elench-envelope) — extracts claim and signer
-    let keys = vec![VerifyingKey {
-        key_id: "agent-key".into(),
-        entity: SignerEntity::Agent,
-    }];
-    let secrets = vec![("agent-key".to_string(), "agent-secret".to_string())];
-    let (extracted_claim, signer) = verify(&envelope, &keys, &secrets).unwrap();
+    let keys = vec![key.verifier()];
+    let (extracted_claim, signer) = verify(&envelope, &keys).unwrap();
 
     // Validate the extracted claim (elench-claim) using the signer
     elench_claim::validate_claim(&extracted_claim, &signer, &[]).unwrap();
@@ -376,16 +372,12 @@ fn e2e_full_pipeline() {
     elench_claim::validate_claim(&claim, &signer, &[]).unwrap();
 
     // 2. Sign in DSSE envelope
-    let key = SigningKey::new("agent-key", SignerEntity::Agent, "agent-secret");
+    let key = SigningKey::generate(SignerEntity::Agent);
     let envelope = sign(&claim, &key);
 
     // 3. Verify the envelope
-    let keys = vec![VerifyingKey {
-        key_id: "agent-key".into(),
-        entity: SignerEntity::Agent,
-    }];
-    let secrets = vec![("agent-key".to_string(), "agent-secret".to_string())];
-    let (verified_claim, _) = verify(&envelope, &keys, &secrets).unwrap();
+    let keys = vec![key.verifier()];
+    let (verified_claim, _) = verify(&envelope, &keys).unwrap();
 
     // 4. Store the verified claim
     let mut store = Store::new();

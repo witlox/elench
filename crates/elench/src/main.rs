@@ -179,11 +179,7 @@ fn cmd_emit(args: &[String]) {
         std::process::exit(1);
     }
 
-    let signing_key = elench_envelope::SigningKey::new(
-        "default-agent-key",
-        elench_claim::SignerEntity::Agent,
-        "elench-default-secret",
-    );
+    let signing_key = elench_envelope::SigningKey::generate(elench_claim::SignerEntity::Agent);
     let envelope = elench_envelope::sign(&claim, &signing_key);
 
     let mut store = elench_store::MemoryStore::new();
@@ -248,16 +244,19 @@ fn cmd_verify(args: &[String]) {
         }
     };
 
-    let keys = vec![elench_envelope::VerifyingKey {
+    // For verification, we need a VerifyingKey. In a real deployment,
+    // this would come from a key registry. For now, we use a placeholder
+    // zero key — verification will fail unless the envelope was signed
+    // with a key we know.
+    let verifying_key = elench_envelope::VerifyingKey {
         key_id: "default-agent-key".into(),
         entity: elench_claim::SignerEntity::Agent,
-    }];
-    let secrets = vec![(
-        "default-agent-key".to_string(),
-        "elench-default-secret".to_string(),
-    )];
+        verifying_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32])
+            .expect("zero key is valid"),
+    };
+    let keys = vec![verifying_key];
 
-    let (claim, signer) = match elench_envelope::verify(&envelope, &keys, &secrets) {
+    let (claim, signer) = match elench_envelope::verify(&envelope, &keys) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("elench verify: envelope verification failed: {e}");
