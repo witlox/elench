@@ -23,7 +23,7 @@
     clippy::match_wildcard_for_single_variants
 )]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use elench_store::StoreBackend;
 
@@ -702,52 +702,85 @@ fn cmd_store(args: &[String], store_config: &StoreConfig) {
 // build — run a build, capture exit code + digest, emit provenance
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::unnecessary_debug_formatting)]
-fn cmd_build(args: &[String]) {
-    if args.is_empty() {
-        eprintln!("elench build: requires a command and tree OID");
-        eprintln!("  elench build <tree_oid> -- <command...>");
-        eprintln!();
-        eprintln!("Runs the build command, captures the exit code and");
-        eprintln!("artifact digest (SHA-256 of stdout), and emits a");
-        eprintln!("build provenance claim with origin.kind = harness-observed.");
-        std::process::exit(1);
-    }
-
-    let tree = &args[0];
-
-    let cmd_args: Vec<&str> = if let Some(pos) = args.iter().position(|a| a == "--") {
-        args[pos + 1..].iter().map(String::as_str).collect()
+/// Split build args into (`elench_flags`, `command_args`) on the first `--`.
+/// The tree OID (args[0]) is excluded from `elench_flags`.
+fn split_build_args(args: &[String]) -> (Vec<&str>, Vec<&str>) {
+    if let Some(pos) = args.iter().position(|a| a == "--") {
+        (
+            args[1..pos].iter().map(String::as_str).collect(),
+            args[pos + 1..].iter().map(String::as_str).collect(),
+        )
     } else if args.len() > 1 {
-        args[1..].iter().map(String::as_str).collect()
-    } else {
         eprintln!("elench build: no command after tree OID (use -- to separate)");
         std::process::exit(1);
-    };
-
-    if cmd_args.is_empty() {
-        eprintln!("elench build: empty command");
-        std::process::exit(1);
+    } else {
+        (Vec::new(), Vec::new())
     }
+}
 
-    let output = std::process::Command::new(cmd_args[0])
-        .args(&cmd_args[1..])
-        .output();
-
-    let output = match output {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("elench build: failed to execute: {e}");
-            std::process::exit(1);
+/// Parse elench-specific build flags (between the tree OID and `--`).
+/// Currently only `--artifact <path>`. Unknown flags are an error.
+fn parse_build_flags(flags: &[&str]) -> Option<PathBuf> {
+    let mut artifact_path = None;
+    let mut i = 0;
+    while i < flags.len() {
+        match flags[i] {
+            "--artifact" => {
+                if i + 1 >= flags.len() {
+                    eprintln!("elench build: --artifact requires a file path");
+                    std::process::exit(1);
+                }
+                artifact_path = Some(PathBuf::from(flags[i + 1]));
+                i += 2;
+            }
+            other => {
+                eprintln!(
+                    "elench build: unknown flag '{other}' (did you mean to put it after --?)"
+                );
+                std::process::exit(1);
+            }
         }
-    };
+    }
+    artifact_path
+}
 
-    let exit_code = output.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+/// Compute the build digest: SHA-256 of the artifact file when `--artifact`
+/// names one, otherwise SHA-256 of stdout. The harness reads the file (not
+/// the agent), so a producer cannot forge a digest it did not observe.
+fn compute_build_digest(
+    artifact_path: Option<&Path>,
+    stdout: &[u8],
+) -> (elench_store::Oid, String) {
+    if let Some(path) = artifact_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("elench build: artifact not found: {path:?}: {e}");
+                std::process::exit(1);
+            }
+        };
+        (
+            elench_store::Oid::from_blob_data(&data),
+            format!("artifact: {path:?}"),
+        )
+    } else {
+        (
+            elench_store::Oid::from_blob_data(stdout),
+            "stdout".to_string(),
+        )
+    }
+}
 
-    let digest = elench_store::Oid::from_blob_data(&output.stdout);
-
+#[allow(clippy::unnecessary_debug_formatting)]
+fn emit_build_provenance(
+    tree: &str,
+    digest: &elench_store::Oid,
+    digest_source: &str,
+    exit_code: i32,
+    stdout: &str,
+    stderr: &str,
+    artifact_path: Option<&Path>,
+) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
@@ -771,7 +804,7 @@ fn cmd_build(args: &[String]) {
             },
         },
         anchor: elench_claim::Anchor {
-            tree: tree.clone(),
+            tree: tree.to_string(),
             strategy: elench_claim::AnchorStrategy::Multi,
             path: None,
             range: None,
@@ -783,7 +816,7 @@ fn cmd_build(args: &[String]) {
             kind: elench_claim::EvidenceKind::ProcessExit,
             digest: Some(digest.as_str().to_string()),
             exit_code: Some(i64::from(exit_code)),
-            uri: None,
+            uri: artifact_path.map(|p| p.to_string_lossy().into()),
         }],
         depends_on: vec![],
     };
@@ -797,9 +830,11 @@ fn cmd_build(args: &[String]) {
     println!("  origin:   {:?}", claim.origin.kind);
     println!("  producer: {}", claim.origin.producer.id);
     println!();
+
     println!("build result:");
     println!("  exit code: {exit_code}");
     println!("  digest:    {digest}");
+    println!("  source:    {digest_source}");
     println!("  stdout:    {} bytes", stdout.len());
     println!("  stderr:    {} bytes", stderr.len());
     if !stderr.is_empty() {
@@ -810,6 +845,57 @@ fn cmd_build(args: &[String]) {
     println!("(PREDICATE_TYPE_BUILD: origin.kind = harness-observed)");
     println!("(INV-22: same envelope format as agent claims)");
     println!("(condition 4: K independent producers sign statements with this digest)");
+}
+
+fn cmd_build(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("elench build: requires a command and tree OID");
+        eprintln!("  elench build <tree_oid> [--artifact <path>] -- <command...>");
+        eprintln!();
+        eprintln!("Runs the build command, captures the exit code and");
+        eprintln!("artifact digest. With --artifact <path>, the digest is");
+        eprintln!("SHA-256 of that file (the real build output). Without it,");
+        eprintln!("the digest falls back to SHA-256 of stdout. Emits a");
+        eprintln!("build provenance claim with origin.kind = harness-observed.");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+    let (elench_flags, cmd_args) = split_build_args(args);
+    if cmd_args.is_empty() {
+        eprintln!("elench build: empty command");
+        std::process::exit(1);
+    }
+
+    let artifact_path = parse_build_flags(&elench_flags);
+
+    let output = std::process::Command::new(cmd_args[0])
+        .args(&cmd_args[1..])
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("elench build: failed to execute: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let (digest, digest_source) = compute_build_digest(artifact_path.as_deref(), &output.stdout);
+
+    emit_build_provenance(
+        tree,
+        &digest,
+        &digest_source,
+        exit_code,
+        &stdout,
+        &stderr,
+        artifact_path.as_deref(),
+    );
 }
 
 // ---------------------------------------------------------------------------

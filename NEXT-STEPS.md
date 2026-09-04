@@ -1,7 +1,7 @@
 # elench — Next Steps
 
-**Last commit:** A2: --store CLI flag + FjallStore.read_tree
-**State:** 196 tests (default), 203 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
+**Last commit:** B2: Build provenance digest — actual artifact (not stdout)
+**State:** 200 tests (default), 207 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
 
@@ -30,12 +30,21 @@
     round-trip + cross-reopen (feature tier), `--store` flag parsing
     (unit + CLI), and `interaction_7_projection_uses_stored_tree_{memory,fjall}`.
 
-## Remaining (in order)
+- B2: Build provenance digest — actual artifact (not stdout)
+  - `elench build <tree> [--artifact <path>] -- <command...>`: when
+    `--artifact <path>` names an existing file, the digest is SHA-256 of
+    that file (the real build output). Without it, falls back to SHA-256 of
+    stdout (current behavior). Missing artifact exits non-zero with a clear
+    message. `--artifact` is parsed before `--`, so the build command's own
+    `--` flags are passed through verbatim.
+  - Evidence `uri` now points to the artifact path when present.
+  - `cmd_build` refactored into `split_build_args`, `parse_build_flags`,
+    `compute_build_digest`, `emit_build_provenance` (clippy clean).
+  - `specs/features/build-provenance.feature` (4 scenarios). Tests:
+    artifact digest, stdout fallback, missing-artifact rejection,
+    `--artifact` parsed before `--`.
 
-### B2: Build provenance digest — actual artifact (not stdout)
-- `elench build <tree> -- <command> --artifact <path>` runs the build, then SHA-256 the file at `--artifact` path
-- If no `--artifact`, fall back to stdout digest (current behavior)
-- ~30 min
+## Remaining (in order)
 
 ### B1: Anchor resolution — actually search trees
 - `resolve_path_range(anchor, store)` — read tree, find entry at path, check lines

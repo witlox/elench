@@ -228,3 +228,123 @@ fn scenario_cli_store_fjall_persists_on_disk() {
     assert!(dir.exists(), "fjall store dir should be materialized");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- build-provenance.feature: --artifact flag + digest selection ---
+
+/// Compute the SHA-256 hex digest of a byte slice, matching
+/// `elench_store::Oid::from_blob_data`.
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(data);
+    format!("{hash:x}")
+}
+
+const TREE_OID: &str = "abc123def456789abc123def456789abc123def456789abc123def456789abcd";
+
+#[test]
+fn scenario_cli_build_digest_is_artifact_file_when_present() {
+    let artifact = std::env::temp_dir().join(format!(
+        "elench_build_art_{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let content = b"this is the real build artifact, not stdout";
+    std::fs::write(&artifact, content).unwrap();
+    let expected = sha256_hex(content);
+
+    let (stdout, _, code) = elench(&[
+        "build",
+        TREE_OID,
+        "--artifact",
+        artifact.to_str().unwrap(),
+        "--",
+        "true",
+    ]);
+    let _ = std::fs::remove_file(&artifact);
+    assert_eq!(code, 0, "stdout was: {stdout}");
+    assert!(
+        stdout.contains(&format!("digest:    {expected}")),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("(artifact") || stdout.contains("artifact:"),
+        "stdout should name the artifact source: {stdout}"
+    );
+}
+
+#[test]
+fn scenario_cli_build_digest_falls_back_to_stdout() {
+    // `echo hello` writes "hello\n" to stdout; SHA-256 of that is the digest.
+    let (stdout, _, code) = elench(&["build", TREE_OID, "--", "echo", "hello"]);
+    assert_eq!(code, 0, "stdout was: {stdout}");
+    let expected = sha256_hex(b"hello\n");
+    assert!(
+        stdout.contains(&format!("digest:    {expected}")),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("source:    stdout"),
+        "stdout should indicate the digest source: {stdout}"
+    );
+}
+
+#[test]
+fn scenario_cli_build_missing_artifact_rejected() {
+    let missing = std::env::temp_dir().join(format!(
+        "elench_build_missing_{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    assert!(!missing.exists());
+    let (_, stderr, code) = elench(&[
+        "build",
+        TREE_OID,
+        "--artifact",
+        missing.to_str().unwrap(),
+        "--",
+        "true",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("artifact"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("not found") || stderr.contains("no such file") || stderr.contains("read"),
+        "stderr should name the missing file: {stderr}"
+    );
+}
+
+#[test]
+fn scenario_cli_build_artifact_parsed_before_double_dash() {
+    // `echo --artifact foo` must receive "--artifact foo" as its own args;
+    // elench's --artifact is the one before the first --.
+    let artifact = std::env::temp_dir().join(format!(
+        "elench_build_dash_{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let content = b"real artifact for dash test";
+    std::fs::write(&artifact, content).unwrap();
+    let expected = sha256_hex(content);
+
+    let (stdout, _, code) = elench(&[
+        "build",
+        TREE_OID,
+        "--artifact",
+        artifact.to_str().unwrap(),
+        "--",
+        "echo",
+        "--artifact",
+        "foo",
+    ]);
+    let _ = std::fs::remove_file(&artifact);
+    assert_eq!(code, 0, "stdout was: {stdout}");
+    assert!(
+        stdout.contains(&format!("digest:    {expected}")),
+        "digest should be the real artifact, not echo's output: {stdout}"
+    );
+}
