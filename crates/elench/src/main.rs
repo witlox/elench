@@ -27,8 +27,120 @@ use std::path::PathBuf;
 
 use elench_store::StoreBackend;
 
+/// Selected storage backend, parsed from the global `--store` flag.
+#[derive(Debug)]
+enum StoreConfig {
+    /// In-memory store (default). No persistence across processes.
+    Memory,
+    /// Persistent fjall-backed store (ADR-0008). Requires the
+    /// `fjall-backend` feature at build time.
+    #[cfg(feature = "fjall-backend")]
+    Fjall { path: PathBuf },
+}
+
+impl StoreConfig {
+    /// Human-readable backend name for diagnostics.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            #[cfg(feature = "fjall-backend")]
+            Self::Fjall { .. } => "fjall",
+        }
+    }
+}
+
+/// Extract the global `--store` flag from `args`, returning the chosen
+/// backend and removing its tokens in place. Only tokens before the first
+/// standalone `--` are examined; everything after belongs to a subcommand
+/// such as `build <tree> -- <cmd>`.
+///
+/// Syntax: `--store memory` (default) or `--store fjall <path>`. May appear
+/// anywhere before the command; the last occurrence wins.
+///
+/// # Errors
+///
+/// Returns a human-readable message on a missing value, unknown backend,
+/// or `--store fjall` when the `fjall-backend` feature is not enabled.
+fn extract_store_config(args: &mut Vec<String>) -> Result<StoreConfig, String> {
+    let mut config = StoreConfig::Memory;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--" {
+            break;
+        }
+        if args[i] == "--store" {
+            if i + 1 >= args.len() {
+                return Err("--store requires a value: memory | fjall <path>".into());
+            }
+            match args[i + 1].as_str() {
+                "memory" => {
+                    config = StoreConfig::Memory;
+                    args.drain(i..=i + 1);
+                }
+                "fjall" => {
+                    #[cfg(not(feature = "fjall-backend"))]
+                    {
+                        return Err("--store fjall requires the fjall-backend feature \
+                             (rebuild with --features elench/fjall-backend)"
+                            .into());
+                    }
+                    #[cfg(feature = "fjall-backend")]
+                    {
+                        if i + 2 >= args.len() {
+                            return Err("--store fjall requires a <path>".into());
+                        }
+                        config = StoreConfig::Fjall {
+                            path: PathBuf::from(&args[i + 2]),
+                        };
+                        args.drain(i..=i + 2);
+                    }
+                }
+                other => {
+                    return Err(format!(
+                        "--store: unknown backend '{other}' (expected: memory | fjall <path>)"
+                    ));
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    Ok(config)
+}
+
+/// Open the selected backend, returning a boxed [`StoreBackend`].
+///
+/// With the `fjall-backend` feature the fjall arm may fail to open;
+/// without the feature it cannot, but the `Result` is kept so the call
+/// sites and error handling are identical across build configurations.
+///
+/// # Errors
+///
+/// Returns a human-readable message if the backend cannot be opened
+/// (e.g. an unwritable fjall path).
+#[cfg_attr(not(feature = "fjall-backend"), allow(clippy::unnecessary_wraps))]
+fn open_store(config: &StoreConfig) -> Result<Box<dyn StoreBackend>, String> {
+    match config {
+        StoreConfig::Memory => Ok(Box::new(elench_store::MemoryStore::new())),
+        #[cfg(feature = "fjall-backend")]
+        StoreConfig::Fjall { path } => {
+            let store = elench_store::FjallStore::open(path)
+                .map_err(|e| format!("failed to open fjall store at {path:?}: {e}"))?;
+            Ok(Box::new(store))
+        }
+    }
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+
+    let store_config = match extract_store_config(&mut args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("elench: {e}");
+            std::process::exit(1);
+        }
+    };
 
     if args.len() < 2 {
         print_usage();
@@ -39,13 +151,13 @@ fn main() {
     let rest = &args[2..];
 
     match command.as_str() {
-        "emit" => cmd_emit(rest),
+        "emit" => cmd_emit(rest, &store_config),
         "verify" => cmd_verify(rest),
         "status" => cmd_status(rest),
         "gate" => cmd_gate(rest),
         "blast" => cmd_blast(rest),
-        "git" => cmd_git(rest),
-        "store" => cmd_store(rest),
+        "git" => cmd_git(rest, &store_config),
+        "store" => cmd_store(rest, &store_config),
         "log" => cmd_log(rest),
         "review" => cmd_review(rest),
         "accept" => cmd_accept(rest),
@@ -71,7 +183,12 @@ fn print_usage() {
     println!("elench — an evidence layer for repositories");
     println!();
     println!("USAGE:");
-    println!("    elench <COMMAND> [OPTIONS]");
+    println!("    elench [--store memory|fjall <path>] <COMMAND> [OPTIONS]");
+    println!();
+    println!("GLOBAL OPTIONS:");
+    println!("    --store memory         In-memory store (default, no persistence)");
+    println!("    --store fjall <path>   Persistent fjall-backed store (requires");
+    println!("                           the 'fjall-backend' feature, ADR-0008)");
     println!();
     println!("COMMANDS:");
     println!("    emit       Create and sign a claim, store in the store");
@@ -137,10 +254,10 @@ fn parse_claims_file(path: &PathBuf) -> Vec<elench_claim::Claim> {
 // emit — create, sign, and store a claim
 // ---------------------------------------------------------------------------
 
-fn cmd_emit(args: &[String]) {
+fn cmd_emit(args: &[String], store_config: &StoreConfig) {
     if args.is_empty() {
         eprintln!("elench emit: requires a claim JSON file");
-        eprintln!("  elench emit <claim.json>");
+        eprintln!("  elench [--store memory|fjall <path>] emit <claim.json>");
         eprintln!();
         eprintln!("The JSON file must contain a Claim with fields matching");
         eprintln!("schema/claim.schema.json. The claim's `id` is computed");
@@ -182,7 +299,13 @@ fn cmd_emit(args: &[String]) {
     let signing_key = elench_envelope::SigningKey::generate(elench_claim::SignerEntity::Agent);
     let envelope = elench_envelope::sign(&claim, &signing_key);
 
-    let mut store = elench_store::MemoryStore::new();
+    let mut store = match open_store(store_config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("elench emit: {e}");
+            std::process::exit(1);
+        }
+    };
     let stored_oid = match store.store_claim(&claim) {
         Ok(oid) => oid,
         Err(e) => {
@@ -196,7 +319,7 @@ fn cmd_emit(args: &[String]) {
     println!("  kind:     {}", claim.kind_str());
     println!("  tree:     {}", claim.anchor.tree);
     println!("  producer: {}", claim.origin.producer.id);
-    println!("  stored:   {stored_oid}");
+    println!("  store:    {} ({})", store_config.name(), stored_oid);
     println!();
     println!("envelope:");
     println!("  payloadType: {}", envelope.payload_type);
@@ -403,12 +526,12 @@ fn cmd_blast(args: &[String]) {
 // git — materialize the git projection
 // ---------------------------------------------------------------------------
 
-fn cmd_git(args: &[String]) {
+fn cmd_git(args: &[String], store_config: &StoreConfig) {
     if args.is_empty() {
         eprintln!("elench git: requires a claim log file");
-        eprintln!("  elench git <claims.json>");
-        eprintln!("  elench git oneline <claims.json>");
-        eprintln!("  elench git full <claims.json>");
+        eprintln!("  elench [--store memory|fjall <path>] git <claims.json>");
+        eprintln!("  elench [--store memory|fjall <path>] git oneline <claims.json>");
+        eprintln!("  elench [--store memory|fjall <path>] git full <claims.json>");
         std::process::exit(1);
     }
 
@@ -434,15 +557,22 @@ fn cmd_git(args: &[String]) {
         return;
     }
 
-    let store = elench_store::MemoryStore::new();
+    let store = match open_store(store_config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("elench git: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    match elench_projection::synthesize(&log, &store) {
+    match elench_projection::synthesize(&log, &*store) {
         Ok(projection) => {
             println!(
-                "projection: {} commits, {} blobs, {} trees",
+                "projection: {} commits, {} blobs, {} trees (store: {})",
                 projection.commits.len(),
                 projection.blobs.len(),
-                projection.trees.len()
+                projection.trees.len(),
+                store_config.name()
             );
             println!();
             let output = match format {
@@ -462,11 +592,11 @@ fn cmd_git(args: &[String]) {
 // store — store a blob or tree
 // ---------------------------------------------------------------------------
 
-fn cmd_store(args: &[String]) {
+fn cmd_store(args: &[String], store_config: &StoreConfig) {
     if args.is_empty() {
         eprintln!("elench store: requires a subcommand");
-        eprintln!("  elench store blob <file>");
-        eprintln!("  elench store tree <file1> <file2> ...");
+        eprintln!("  elench [--store memory|fjall <path>] store blob <file>");
+        eprintln!("  elench [--store memory|fjall <path>] store tree <file1> <file2> ...");
         std::process::exit(1);
     }
 
@@ -477,18 +607,31 @@ fn cmd_store(args: &[String]) {
                 std::process::exit(1);
             }
             let path = PathBuf::from(&args[1]);
-            match std::fs::read(&path) {
-                Ok(data) => {
-                    let oid = elench_store::Oid::from_blob_data(&data);
-                    println!("blob: {oid}");
-                    println!("size: {} bytes", data.len());
-                    println!("(SHA-256 content address — identical to git SHA-256 blob OID)");
-                }
+            let data = match std::fs::read(&path) {
+                Ok(d) => d,
                 Err(e) => {
                     eprintln!("elench store blob: failed to read {path:?}: {e}");
                     std::process::exit(1);
                 }
-            }
+            };
+            let mut store = match open_store(store_config) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("elench store blob: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let oid = match store.store_blob(&data) {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("elench store blob: failed to store: {e}");
+                    std::process::exit(1);
+                }
+            };
+            println!("blob: {oid}");
+            println!("size: {} bytes", data.len());
+            println!("store: {}", store_config.name());
+            println!("(SHA-256 content address — identical to git SHA-256 blob OID)");
         }
         "tree" => {
             if args.len() < 2 {
@@ -496,7 +639,13 @@ fn cmd_store(args: &[String]) {
                 std::process::exit(1);
             }
 
-            let mut store = elench_store::MemoryStore::new();
+            let mut store = match open_store(store_config) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("elench store tree: {e}");
+                    std::process::exit(1);
+                }
+            };
             let mut entries = Vec::new();
 
             for file_path in &args[1..] {
@@ -524,15 +673,26 @@ fn cmd_store(args: &[String]) {
                 }
             }
 
+            // Sort entries (git-compatible) and compute the canonical OID,
+            // then store the sorted entries so the persisted OID matches the
+            // canonical one and round-trips through read_tree.
             let tree = elench_store::Tree::from_entries(entries);
+            let stored_oid = match store.store_tree(tree.entries.clone()) {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("elench store tree: failed to store tree: {e}");
+                    std::process::exit(1);
+                }
+            };
             println!("tree: {}", tree.oid);
             println!("entries: {}", tree.entries.len());
+            println!("store: {} ({})", store_config.name(), stored_oid);
             println!("(SHA-256 content address — identical to git SHA-256 tree OID)");
         }
         other => {
             eprintln!("elench store: unknown subcommand '{other}'");
-            eprintln!("  elench store blob <file>");
-            eprintln!("  elench store tree <file1> <file2> ...");
+            eprintln!("  elench [--store memory|fjall <path>] store blob <file>");
+            eprintln!("  elench [--store memory|fjall <path>] store tree <file1> <file2> ...");
             std::process::exit(1);
         }
     }
@@ -1174,5 +1334,111 @@ fn cmd_artifact(args: &[String]) {
             eprintln!("  elench artifact verify <artifact.json> <claims.json>");
             std::process::exit(1);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — store-config parsing (store-backend.feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{StoreConfig, extract_store_config};
+
+    fn args(rest: &[&str]) -> Vec<String> {
+        std::iter::once("elench".to_string())
+            .chain(rest.iter().map(|s| (*s).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn scenario_store_default_is_memory() {
+        let mut a = args(&["emit", "claim.json"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        assert!(matches!(cfg, StoreConfig::Memory));
+        assert_eq!(a, args(&["emit", "claim.json"]));
+    }
+
+    #[test]
+    fn scenario_store_explicit_memory_before_command() {
+        let mut a = args(&["--store", "memory", "emit", "claim.json"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        assert!(matches!(cfg, StoreConfig::Memory));
+        assert_eq!(a, args(&["emit", "claim.json"]));
+    }
+
+    #[test]
+    fn scenario_store_explicit_memory_after_command() {
+        let mut a = args(&["store", "blob", "f.txt", "--store", "memory"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        assert!(matches!(cfg, StoreConfig::Memory));
+        assert_eq!(a, args(&["store", "blob", "f.txt"]));
+    }
+
+    #[test]
+    fn scenario_store_missing_value_errors() {
+        let mut a = args(&["--store"]);
+        let err = extract_store_config(&mut a).unwrap_err();
+        assert!(err.contains("requires a value"));
+    }
+
+    #[test]
+    fn scenario_store_unknown_backend_errors() {
+        let mut a = args(&["--store", "redis", "emit", "x.json"]);
+        let err = extract_store_config(&mut a).unwrap_err();
+        assert!(err.contains("unknown backend"));
+        assert!(err.contains("redis"));
+    }
+
+    #[test]
+    fn scenario_store_fjall_missing_path_errors() {
+        // `--store fjall` with no path at all. Without the feature this
+        // errors on the feature check; with the feature on the missing
+        // path. Either way it must error and mention fjall.
+        let mut a = args(&["--store", "fjall"]);
+        let err = extract_store_config(&mut a).unwrap_err();
+        assert!(err.contains("fjall"));
+    }
+
+    #[test]
+    #[cfg(not(feature = "fjall-backend"))]
+    fn scenario_store_fjall_without_feature_errors() {
+        let mut a = args(&["--store", "fjall", "/tmp/db", "emit", "x.json"]);
+        let err = extract_store_config(&mut a).unwrap_err();
+        assert!(err.contains("fjall-backend feature"));
+        assert!(err.contains("--features elench/fjall-backend"));
+    }
+
+    #[test]
+    #[cfg(feature = "fjall-backend")]
+    fn scenario_store_fjall_with_feature_parses() {
+        let mut a = args(&["--store", "fjall", "/tmp/db", "emit", "x.json"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        match cfg {
+            StoreConfig::Fjall { path } => assert_eq!(path, std::path::PathBuf::from("/tmp/db")),
+            other => panic!("expected Fjall, got {other:?}"),
+        }
+        assert_eq!(a, args(&["emit", "x.json"]));
+    }
+
+    #[test]
+    fn scenario_store_stops_at_double_dash() {
+        // A `--` separator ends extraction; the trailing `--store` belongs
+        // to the subcommand and must be left in place (build ... -- <cmd>).
+        let mut a = args(&["build", "tree123", "--", "cargo", "--store", "memory"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        assert!(matches!(cfg, StoreConfig::Memory));
+        assert_eq!(
+            a,
+            args(&["build", "tree123", "--", "cargo", "--store", "memory"])
+        );
+    }
+
+    #[test]
+    fn scenario_store_last_occurrence_wins() {
+        let mut a = args(&["--store", "memory", "--store", "memory", "emit", "x.json"]);
+        let cfg = extract_store_config(&mut a).unwrap();
+        assert!(matches!(cfg, StoreConfig::Memory));
+        assert_eq!(a, args(&["emit", "x.json"]));
     }
 }

@@ -11,7 +11,7 @@ use elench_claim::{
 use elench_envelope::{SigningKey, sign, verify};
 use elench_gate::{Policy, VerdictResult, evaluate};
 use elench_projection::{git_log_oneline, synthesize};
-use elench_store::{MemoryStore as Store, StoreBackend};
+use elench_store::{MemoryStore as Store, StoreBackend, Tree, TreeEntry, TreeEntryKind};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -408,4 +408,141 @@ fn e2e_full_pipeline() {
     assert_eq!(store.tree_count(), 0);
 
     // Claim OID is consistent
+}
+
+// ---------------------------------------------------------------------------
+// Interaction 7: Git projection uses the REAL stored tree (read_tree round-trip)
+//
+// store-backend.feature: a tree persisted in any backend must round-trip
+// through read_tree so the projection carries the true entries rather than
+// the "minimal entry from anchor path" fallback. Verified for the default
+// in-memory backend (always) and the fjall backend (when enabled).
+// ---------------------------------------------------------------------------
+
+fn projection_uses_real_stored_tree(store: &mut dyn StoreBackend) {
+    let blob_a = store.store_blob(b"a content").unwrap();
+    let blob_b = store.store_blob(b"b content").unwrap();
+    let entries = vec![
+        TreeEntry {
+            name: "a.txt".into(),
+            mode: 0o100_644,
+            oid: blob_a,
+            kind: TreeEntryKind::Blob,
+        },
+        TreeEntry {
+            name: "b.txt".into(),
+            mode: 0o100_644,
+            oid: blob_b,
+            kind: TreeEntryKind::Blob,
+        },
+    ];
+    let tree = Tree::from_entries(entries);
+    store.store_tree(tree.entries.clone()).unwrap();
+
+    // anchor.path is deliberately unrelated to the stored entry names so
+    // that the minimal fallback (a single entry named "irrelevant") would
+    // be distinguishable from the true projection.
+    let claim = Claim {
+        id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000077")
+            .unwrap(),
+        kind: ClaimKind::Assertion,
+        target: vec![],
+        assertion: AssertionForm::Predicate {
+            expression: Expression {
+                language: "elench-predicate-v1".into(),
+                source: "exists(\"a.txt\")".into(),
+                digest: None,
+            },
+        },
+        origin: Origin {
+            kind: OriginKind::AgentAsserted,
+            producer: Producer {
+                id: "store-projection-producer".into(),
+                session_id: None,
+                hermeticity: None,
+            },
+        },
+        anchor: Anchor {
+            tree: tree.oid.as_str().to_string(),
+            strategy: AnchorStrategy::PathRange,
+            path: Some("irrelevant".into()),
+            range: Some([1, 2]),
+            symbol: None,
+            content_digest: None,
+        },
+        timestamp: 1_700_000_010,
+        evidence: vec![],
+        depends_on: vec![],
+    };
+
+    let projection = synthesize(std::slice::from_ref(&claim), store).unwrap();
+
+    let git_tree = projection
+        .trees
+        .iter()
+        .find(|t| t.oid == tree.oid.as_str())
+        .expect("projected git tree for the stored elench tree OID");
+
+    assert_eq!(
+        git_tree.entries.len(),
+        2,
+        "projection used the real stored tree, not the minimal fallback"
+    );
+    let names: Vec<&str> = git_tree.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(names.contains(&"a.txt"));
+    assert!(names.contains(&"b.txt"));
+    assert!(
+        !names.contains(&"irrelevant"),
+        "anchor.path must not leak into the projected tree"
+    );
+}
+
+#[test]
+fn interaction_7_projection_uses_stored_tree_memory() {
+    let mut store = Store::new();
+    projection_uses_real_stored_tree(&mut store);
+}
+
+#[cfg(feature = "fjall-backend")]
+#[test]
+fn interaction_7_projection_uses_stored_tree_fjall() {
+    use elench_store::Oid;
+    let dir = std::env::temp_dir().join(format!(
+        "elench_fjall_int7_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    {
+        let mut store = elench_store::FjallStore::open(&dir).unwrap();
+        projection_uses_real_stored_tree(&mut store);
+        store.flush().unwrap();
+    }
+    // A second process opening the same path must also see the stored tree:
+    // the projection reads trees through read_tree, proving persistence
+    // across processes (the core A2 goal).
+    let blob_a = Oid::from_blob_data(b"a content");
+    let _ = blob_a; // referenced indirectly via the stored tree OID below
+    let store = elench_store::FjallStore::open(&dir).unwrap();
+    // Re-derive the same tree OID (content-addressed) and read it back.
+    let entries = vec![
+        TreeEntry {
+            name: "a.txt".into(),
+            mode: 0o100_644,
+            oid: Oid::from_blob_data(b"a content"),
+            kind: TreeEntryKind::Blob,
+        },
+        TreeEntry {
+            name: "b.txt".into(),
+            mode: 0o100_644,
+            oid: Oid::from_blob_data(b"b content"),
+            kind: TreeEntryKind::Blob,
+        },
+    ];
+    let expected_oid = Oid::from_tree_entries(&entries);
+    let tree = store.read_tree(&expected_oid).unwrap();
+    assert_eq!(tree.oid, expected_oid);
+    assert_eq!(tree.entries.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
 }

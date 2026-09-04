@@ -183,6 +183,84 @@ pub(crate) fn canonical_tree_bytes(entries: &[TreeEntry]) -> Vec<u8> {
     buf
 }
 
+/// Inverse of [`canonical_tree_bytes`]: parse the canonical form
+/// `mode_octal space name null 32_byte_oid` back into [`TreeEntry`]s.
+///
+/// Mode `0o040000` is a directory ([`TreeEntryKind::Tree`]); every other
+/// git mode (regular, exec, symlink) is a blob ([`TreeEntryKind::Blob`]).
+/// Names are taken verbatim between the space and the null terminator, so
+/// names containing spaces are preserved (git-compatible).
+///
+/// Only the fjall backend persists the canonical form; the round-trip is
+/// covered by the default test tier regardless of feature.
+///
+/// # Errors
+///
+/// Returns [`StoreError::CorruptStore`] if the bytes are malformed
+/// (missing separator, non-utf-8, non-octal mode, truncated OID).
+/// Returns [`StoreError::InvalidOid`] if a decoded OID is not 64 hex chars.
+#[cfg_attr(not(feature = "fjall-backend"), allow(dead_code))]
+pub(crate) fn deserialize_tree_bytes(canonical: &[u8]) -> Result<Vec<TreeEntry>, StoreError> {
+    let mut entries = Vec::new();
+    let mut pos = 0;
+    while pos < canonical.len() {
+        // mode: bytes up to the first space
+        let sp = canonical[pos..]
+            .iter()
+            .position(|&b| b == b' ')
+            .ok_or_else(|| {
+                StoreError::CorruptStore(format!(
+                    "tree entry at byte {pos}: missing mode separator"
+                ))
+            })?;
+        let mode_str = std::str::from_utf8(&canonical[pos..pos + sp])
+            .map_err(|e| StoreError::CorruptStore(format!("tree mode not utf-8: {e}")))?;
+        let mode = u32::from_str_radix(mode_str, 8).map_err(|e| {
+            StoreError::CorruptStore(format!("tree mode '{mode_str}' not octal: {e}"))
+        })?;
+
+        // name: bytes from after the space up to the null terminator
+        let name_start = pos + sp + 1;
+        let null = canonical[name_start..]
+            .iter()
+            .position(|&b| b == 0x00)
+            .ok_or_else(|| {
+                StoreError::CorruptStore(format!(
+                    "tree entry at byte {name_start}: missing name terminator"
+                ))
+            })?;
+        let name_end = name_start + null;
+        let name = std::str::from_utf8(&canonical[name_start..name_end])
+            .map_err(|e| StoreError::CorruptStore(format!("tree name not utf-8: {e}")))?
+            .to_string();
+
+        // OID: exactly 32 raw bytes after the null terminator
+        let oid_start = name_end + 1;
+        let oid_end = oid_start + 32;
+        if oid_end > canonical.len() {
+            return Err(StoreError::CorruptStore(format!(
+                "tree entry '{name}': truncated OID (need 32 bytes, have {})",
+                canonical.len().saturating_sub(oid_start)
+            )));
+        }
+        let oid = Oid::new(hex::encode(&canonical[oid_start..oid_end]))?;
+
+        let kind = if mode == 0o040_000 {
+            TreeEntryKind::Tree
+        } else {
+            TreeEntryKind::Blob
+        };
+        entries.push(TreeEntry {
+            name,
+            mode,
+            oid,
+            kind,
+        });
+        pos = oid_end;
+    }
+    Ok(entries)
+}
+
 // ---------------------------------------------------------------------------
 // StoreBackend trait — abstracts the storage backend
 // ---------------------------------------------------------------------------
@@ -746,6 +824,71 @@ mod tests {
         let oid = Oid::new("b".repeat(64)).unwrap();
         let result = store.read_tree(&oid);
         assert_eq!(result, Err(StoreError::ObjectNotFound("b".repeat(64))));
+    }
+
+    // --- INV-25: canonical serialization round-trips (store-backend.feature) ---
+
+    #[test]
+    fn scenario_inv25_deserialize_tree_bytes_round_trip() {
+        let blob_oid = Oid::from_blob_data(b"round-trip content");
+        let entries = vec![
+            TreeEntry {
+                name: "a.txt".into(),
+                mode: 0o100_644,
+                oid: blob_oid,
+                kind: TreeEntryKind::Blob,
+            },
+            TreeEntry {
+                name: "src".into(),
+                mode: 0o040_000,
+                oid: Oid::new("c".repeat(64)).unwrap(),
+                kind: TreeEntryKind::Tree,
+            },
+        ];
+        let canonical = canonical_tree_bytes(&entries);
+        let decoded = deserialize_tree_bytes(&canonical).expect("decode canonical bytes");
+        assert_eq!(decoded, entries);
+    }
+
+    #[test]
+    fn scenario_inv25_deserialize_empty_tree_bytes() {
+        let decoded = deserialize_tree_bytes(&[]).expect("empty canonical decodes");
+        assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn scenario_inv25_deserialize_preserves_exec_and_symlink_modes() {
+        let entries = vec![
+            TreeEntry {
+                name: "run.sh".into(),
+                mode: 0o100_755,
+                oid: Oid::from_blob_data(b"#!sh"),
+                kind: TreeEntryKind::Blob,
+            },
+            TreeEntry {
+                name: "link".into(),
+                mode: 0o120_000,
+                oid: Oid::from_blob_data(b"target"),
+                kind: TreeEntryKind::Blob,
+            },
+        ];
+        let canonical = canonical_tree_bytes(&entries);
+        let decoded = deserialize_tree_bytes(&canonical).expect("decode");
+        assert_eq!(decoded, entries);
+    }
+
+    #[test]
+    fn scenario_deserialize_rejects_truncated_oid() {
+        // mode "100644" + space + "x" + null + only 4 OID bytes
+        let mut bad = Vec::new();
+        bad.extend_from_slice(b"100644");
+        bad.push(b' ');
+        bad.extend_from_slice(b"x");
+        bad.push(0x00);
+        bad.extend_from_slice(&[0u8; 4]);
+        let err = deserialize_tree_bytes(&bad).unwrap_err();
+        assert!(matches!(err, StoreError::CorruptStore(_)));
+        assert!(err.to_string().contains("truncated OID"));
     }
 
     // --- Tree sorting (git-compatible) ---

@@ -12,6 +12,11 @@ description = "An evidence layer for repositories — and the substrate that rep
 name = "elench"
 path = "src/main.rs"
 
+[features]
+default = []
+# Forwards to elench-store's fjall-backend, enabling `--store fjall <path>`.
+fjall-backend = ["elench-store/fjall-backend"]
+
 [dependencies]
 elench-claim = { path = "../elench-claim" }
 elench-envelope = { path = "../elench-envelope" }

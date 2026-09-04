@@ -127,7 +127,7 @@ pub struct Projection {
 /// Returns [`ProjectionError`] if the claim log is empty or a claim
 /// has no anchor.
 #[allow(clippy::format_push_string, clippy::too_many_lines)]
-pub fn synthesize(log: &[Claim], store: &impl StoreBackend) -> Result<Projection, ProjectionError> {
+pub fn synthesize(log: &[Claim], store: &dyn StoreBackend) -> Result<Projection, ProjectionError> {
     if log.is_empty() {
         return Err(ProjectionError::EmptyLog);
     }
@@ -276,7 +276,7 @@ fn tree_entry_to_git(
     trees: &mut Vec<GitTree>,
     seen_blobs: &mut std::collections::HashSet<String>,
     seen_trees: &mut std::collections::HashSet<String>,
-    _store: &impl StoreBackend,
+    _store: &dyn StoreBackend,
 ) -> GitTreeEntry {
     let mode = match entry.kind {
         TreeEntryKind::Blob => {

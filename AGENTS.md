@@ -14,11 +14,11 @@ rules are ENFORCED, not unevaluated.
 | Language | Rust (edition 2024, MSRV 1.85) |
 | License | MIT |
 | Crate count | 7 (elench, elench-claim, elench-envelope, elench-store, elench-gate, elench-predicate, elench-projection) |
-| Spec count | 7 feature files, 44 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
+| Spec count | 8 feature files, 49 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
 | ADR count | 8 (0001–0008; 0000 is template) |
 | Experiment count | 3 (E0 PASSED 0.72, E1 PASSED 99.4%, E2 PASSED cheap-to-fix) |
-| Fidelity | 27 invariants ENFORCED, 1 future (INV-15 artifact format). 161 tests, 90% coverage. |
-| Store backend | In-memory (default), fjall (optional feature, ADR-0008) |
+| Fidelity | 27 invariants ENFORCED, 1 future (INV-15 artifact format). 196 tests (203 with fjall-backend), 81% line coverage workspace-wide (~91% libs). |
+| Store backend | In-memory (default), fjall (optional feature, ADR-0008). CLI `--store memory|fjall <path>`; `synthesize` takes `&dyn StoreBackend`. |
 
 E0 PASSED (ratio 0.72, threshold ≥ 0.30). All five phases are
 implemented and audited. The validator (ADR-0006) enforces all

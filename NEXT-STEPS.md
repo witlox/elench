@@ -1,7 +1,7 @@
 # elench — Next Steps
 
-**Last commit:** c9ca3e1 (A1: Real Ed25519 crypto via ed25519-dalek)
-**State:** 176 tests, all passing. fmt clean, clippy clean. 8 crates.
+**Last commit:** A2: --store CLI flag + FjallStore.read_tree
+**State:** 196 tests (default), 203 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
 
@@ -12,17 +12,25 @@
   - Key ID = SHA-256 of public key, first 16 hex chars
   - Tests: 12 envelope + 13 cli + 7 integration, all updated
 
-## Remaining (in order)
+- A2: --store CLI flag + FjallStore.read_tree
+  - `--store memory` (default) | `--store fjall <path>` parsed as a global
+    flag (before the command or before `--`). Unknown backends and a missing
+    value are rejected with a clear message. `--store fjall` without the
+    `fjall-backend` feature reports how to enable it.
+  - `elench-store` now has `deserialize_tree_bytes` (inverse of
+    `canonical_tree_bytes`); `FjallStore::read_tree` round-trips the
+    canonical form back to `Vec<TreeEntry>` (was a deferred empty-tree stub).
+  - `elench-projection::synthesize` now takes `&dyn StoreBackend` so a
+    runtime-selected backend can be used. Wired into `emit`, `store
+    blob`/`store tree`, and `git` via `open_store(&StoreConfig)`.
+  - `elench` binary gained a `fjall-backend` feature forwarding to
+    `elench-store/fjall-backend`.
+  - `specs/features/store-backend.feature` (5 scenarios). Tests:
+    `deserialize_tree_bytes` round-trip (default tier), `FjallStore::read_tree`
+    round-trip + cross-reopen (feature tier), `--store` flag parsing
+    (unit + CLI), and `interaction_7_projection_uses_stored_tree_{memory,fjall}`.
 
-### A2: --store CLI flag + FjallStore.read_tree
-- Parse `--store memory` (default) or `--store fjall <path>` from CLI args
-- Wire chosen backend into all commands that use a store (emit, gate, git, etc.)
-- Implement `FjallStore::read_tree`: deserialize canonical bytes (mode space name null oid) back to `Vec<TreeEntry>`
-- elench-store/Cargo.toml already has `fjall = { version = "3", optional = true }` with `fjall-backend` feature
-- `FjallStore` already implements `StoreBackend` trait (crates/elench-store/src/fjall_backend.rs)
-- `elench-projection::synthesize` already takes `&impl StoreBackend`
-- CLI currently hardcodes `elench_store::MemoryStore::new()` — needs `--store` flag
-- ~2 hours
+## Remaining (in order)
 
 ### B2: Build provenance digest — actual artifact (not stdout)
 - `elench build <tree> -- <command> --artifact <path>` runs the build, then SHA-256 the file at `--artifact` path
@@ -45,7 +53,7 @@
 ### C3: CI — .github/workflows/ci.yml
 - On push: Tier 1 (cargo test --lib + fmt-check + clippy)
 - On PR: Tier 2 (cargo test --all-targets)
-- Nightly: Tier 3 (cargo test --all-targets --features elench-store/fjall-backend + coverage)
+- Nightly: Tier 3 (cargo test --all-targets --features elench/fjall-backend + coverage)
 - ~1 hour
 
 ### C1: Git .git/ materialization — write real git objects
@@ -57,7 +65,7 @@
 
 ### C4: Dogfooding (ongoing)
 - Agents working on elench emit claims about elench's own code
-- Depends on A1 (done) and A2 (pending)
+- Depends on A1 (done) and A2 (done)
 - Ongoing effort
 
 ## Key files
@@ -67,10 +75,11 @@
 - `specs/architecture/enforcement-map.md` — enforcement status
 - `specs/architecture/build-phases.md` — phase status (all COMPLETE)
 - `specs/architecture/adr/` — ADRs 0001-0008
-- `crates/elench-envelope/src/lib.rs` — Ed25519 signing/verification
-- `crates/elench-store/src/lib.rs` — StoreBackend trait + MemoryStore
-- `crates/elench-store/src/fjall_backend.rs` — FjallStore (optional)
-- `crates/elench/src/main.rs` — CLI (emit, verify, status, gate, blast, git, store, log, review, accept, conflicts, compact, artifact, build)
+- `specs/features/store-backend.feature` — backend selection + read_tree round-trip
+- `crates/elench-store/src/lib.rs` — StoreBackend trait, MemoryStore, canonical/deserialize tree bytes
+- `crates/elench-store/src/fjall_backend.rs` — FjallStore (optional), read_tree now round-trips
+- `crates/elench-projection/src/lib.rs` — synthesize(&[Claim], &dyn StoreBackend)
+- `crates/elench/src/main.rs` — CLI (--store flag, emit, verify, status, gate, blast, git, store, log, review, accept, conflicts, compact, artifact, build)
 
 ## Build commands
 
@@ -78,5 +87,15 @@
 make              # fmt-check + lint + Tier 1 (before every commit)
 make test         # Tier 1: cargo test --lib
 make test-slow    # Tier 2: cargo test --all-targets
+make test-full    # Tier 3: Tier 2 + e2e (not yet configured)
 make coverage     # cargo llvm-cov --workspace --fail-under-lines 50
 ```
+
+### Feature flag
+
+```
+cargo test --workspace --all-targets --features elench/fjall-backend
+```
+
+Runs the persistent-store tests (`FjallStore::read_tree`, cross-reopen,
+`--store fjall <path>` materialization, `interaction_7_..._fjall`).

@@ -16,7 +16,7 @@ use std::path::Path;
 use elench_claim::Claim;
 use fjall::{KeyspaceCreateOptions, PersistMode};
 
-use crate::{Oid, StoreBackend, StoreError, Tree, canonical_tree_bytes};
+use crate::{Oid, StoreBackend, StoreError, Tree, canonical_tree_bytes, deserialize_tree_bytes};
 
 /// Persistent content-addressed store backed by fjall.
 ///
@@ -183,19 +183,19 @@ impl StoreBackend for FjallStore {
     }
 
     fn read_tree(&self, oid: &Oid) -> Result<Tree, StoreError> {
-        let _data = self
+        let data = self
             .trees
             .get(oid.as_str().as_bytes())
             .map_err(|e| StoreError::CorruptStore(format!("tree read failed: {e}")))?
             .ok_or_else(|| StoreError::ObjectNotFound(oid.as_str().to_string()))?;
 
-        // Trees are stored as canonical bytes (mode space name null oid).
-        // For Phase 1, we return an empty tree since deserialization
-        // of canonical bytes back to TreeEntry is deferred.
-        // The OID is correct and content-addressed.
+        // Trees are stored as canonical bytes (mode space name null oid),
+        // identical to git's tree object format. Deserialize back into
+        // entries; the OID is content-addressed and matches `oid`.
+        let entries = deserialize_tree_bytes(&data)?;
         Ok(Tree {
             oid: oid.clone(),
-            entries: Vec::new(),
+            entries,
         })
     }
 
@@ -335,6 +335,78 @@ mod tests {
         let oid2 = store.store_blob(b"hello").unwrap();
         assert_eq!(oid1, oid2);
         assert_eq!(store.blob_count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // store-backend.feature: read_tree round-trips the canonical serialization
+
+    #[test]
+    fn scenario_fjall_read_tree_round_trip() {
+        let dir = temp_dir();
+        let mut store = FjallStore::open(&dir).unwrap();
+
+        let blob_oid = store.store_blob(b"tree file content").unwrap();
+        let dir_oid = Oid::new("d".repeat(64)).unwrap();
+        let entries = vec![
+            crate::TreeEntry {
+                name: "lib.rs".into(),
+                mode: 0o100_644,
+                oid: blob_oid,
+                kind: crate::TreeEntryKind::Blob,
+            },
+            crate::TreeEntry {
+                name: "src".into(),
+                mode: 0o040_000,
+                oid: dir_oid,
+                kind: crate::TreeEntryKind::Tree,
+            },
+        ];
+
+        let tree_oid = store.store_tree(entries.clone()).unwrap();
+        let tree = store.read_tree(&tree_oid).unwrap();
+        assert_eq!(tree.oid, tree_oid);
+        assert_eq!(tree.entries, entries);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scenario_fjall_read_tree_survives_reopen() {
+        let dir = temp_dir();
+
+        let (blob_oid, tree_oid) = {
+            let mut store = FjallStore::open(&dir).unwrap();
+            let blob = store.store_blob(b"persisted").unwrap();
+            let entries = vec![crate::TreeEntry {
+                name: "f.txt".into(),
+                mode: 0o100_644,
+                oid: blob.clone(),
+                kind: crate::TreeEntryKind::Blob,
+            }];
+            let tree_oid = store.store_tree(entries).unwrap();
+            store.flush().unwrap();
+            (blob, tree_oid)
+        };
+
+        // A separate process opens the same path and reads the tree back.
+        let store = FjallStore::open(&dir).unwrap();
+        let tree = store.read_tree(&tree_oid).unwrap();
+        assert_eq!(tree.oid, tree_oid);
+        assert_eq!(tree.entries.len(), 1);
+        assert_eq!(tree.entries[0].name, "f.txt");
+        assert_eq!(tree.entries[0].oid, blob_oid);
+        assert_eq!(tree.entries[0].kind, crate::TreeEntryKind::Blob);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scenario_fjall_read_tree_not_found() {
+        let dir = temp_dir();
+        let store = FjallStore::open(&dir).unwrap();
+        let oid = Oid::new("e".repeat(64)).unwrap();
+        let err = store.read_tree(&oid).unwrap_err();
+        assert!(matches!(err, StoreError::ObjectNotFound(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -120,7 +120,111 @@ fn scenario_cli_store_unknown_subcommand_exits_1() {
 
 #[test]
 fn scenario_cli_git_empty_log() {
-    let (stdout, _, code) = elench(&["git", "/tmp/opencode/empty-claims.json"]);
+    // Hermetic: create a truly empty claim log in a temp file rather than
+    // depending on a fixed path that may not exist across machines.
+    let path = std::env::temp_dir().join(format!(
+        "elench_empty_claims_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, "[]").unwrap();
+    let (stdout, _, code) = elench(&["git", path.to_str().unwrap()]);
+    let _ = std::fs::remove_file(&path);
     assert_eq!(code, 0);
     assert!(stdout.contains("nothing to project") || stdout.contains("empty"));
+}
+
+// --- store-backend.feature: --store flag selection ---
+
+#[test]
+fn scenario_cli_store_default_reports_memory() {
+    let (stdout, _, code) = elench(&[
+        "store",
+        "blob",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml"),
+    ]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("store: memory"));
+}
+
+#[test]
+fn scenario_cli_store_explicit_memory_before_command() {
+    let (stdout, _, code) = elench(&[
+        "--store",
+        "memory",
+        "store",
+        "blob",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml"),
+    ]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("store: memory"));
+}
+
+#[test]
+fn scenario_cli_store_memory_after_command() {
+    let (stdout, _, code) = elench(&[
+        "store",
+        "blob",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml"),
+        "--store",
+        "memory",
+    ]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("store: memory"));
+}
+
+#[test]
+fn scenario_cli_store_missing_value_rejected() {
+    let (_, stderr, code) = elench(&["--store"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a value"));
+}
+
+#[test]
+fn scenario_cli_store_unknown_backend_rejected() {
+    let (_, stderr, code) = elench(&["--store", "redis", "store", "blob", "x"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("unknown backend"));
+    assert!(stderr.contains("redis"));
+}
+
+#[cfg(not(feature = "fjall-backend"))]
+#[test]
+fn scenario_cli_store_fjall_rejected_without_feature() {
+    let (_, stderr, code) = elench(&[
+        "--store",
+        "fjall",
+        "/tmp/opencode/elench_nofeature",
+        "store",
+        "blob",
+        "x",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("fjall-backend feature"));
+}
+
+#[cfg(feature = "fjall-backend")]
+#[test]
+fn scenario_cli_store_fjall_persists_on_disk() {
+    let dir = std::env::temp_dir().join(format!(
+        "elench_fjall_cli_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let (stdout, _, code) = elench(&[
+        "--store",
+        "fjall",
+        dir.to_str().unwrap(),
+        "store",
+        "blob",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml"),
+    ]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("store: fjall"));
+    assert!(dir.exists(), "fjall store dir should be materialized");
+    let _ = std::fs::remove_dir_all(&dir);
 }
