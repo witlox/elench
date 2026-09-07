@@ -255,6 +255,7 @@ fn scenario_cli_build_digest_is_artifact_file_when_present() {
     let expected = sha256_hex(content);
 
     let (stdout, _, code) = elench(&[
+        "--harness",
         "build",
         TREE_OID,
         "--artifact",
@@ -277,7 +278,7 @@ fn scenario_cli_build_digest_is_artifact_file_when_present() {
 #[test]
 fn scenario_cli_build_digest_falls_back_to_stdout() {
     // `echo hello` writes "hello\n" to stdout; SHA-256 of that is the digest.
-    let (stdout, _, code) = elench(&["build", TREE_OID, "--", "echo", "hello"]);
+    let (stdout, _, code) = elench(&["--harness", "build", TREE_OID, "--", "echo", "hello"]);
     assert_eq!(code, 0, "stdout was: {stdout}");
     let expected = sha256_hex(b"hello\n");
     assert!(
@@ -332,6 +333,7 @@ fn scenario_cli_build_artifact_parsed_before_double_dash() {
     let expected = sha256_hex(content);
 
     let (stdout, _, code) = elench(&[
+        "--harness",
         "build",
         TREE_OID,
         "--artifact",
@@ -786,21 +788,29 @@ fn scenario_cli_build_no_args_exits_1() {
 
 #[test]
 fn scenario_cli_build_empty_command_exits_1() {
-    let (_, stderr, code) = elench(&["build", TREE_OID, "--"]);
+    let (_, stderr, code) = elench(&["--harness", "build", TREE_OID, "--"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("empty command"));
 }
 
 #[test]
 fn scenario_cli_build_execution_failure_exits_1() {
-    let (_, stderr, code) = elench(&["build", TREE_OID, "--", "/nonexistent/binary"]);
+    let (_, stderr, code) = elench(&["--harness", "build", TREE_OID, "--", "/nonexistent/binary"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("failed to execute"));
 }
 
 #[test]
 fn scenario_cli_build_stderr_output() {
-    let (stdout, _, code) = elench(&["build", TREE_OID, "--", "sh", "-c", "echo err >&2"]);
+    let (stdout, _, code) = elench(&[
+        "--harness",
+        "build",
+        TREE_OID,
+        "--",
+        "sh",
+        "-c",
+        "echo err >&2",
+    ]);
     assert_eq!(code, 0);
     assert!(stdout.contains("stderr (first 500 chars):"));
     assert!(stdout.contains("err"));

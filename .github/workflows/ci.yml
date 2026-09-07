@@ -5,10 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    # Nightly at 03:00 UTC — Tier 3 (slow + fjall + coverage)
-    - cron: "0 3 * * *"
-  workflow_dispatch: {}
 
 env:
   RUSTFLAGS: "-D warnings"
@@ -31,9 +27,10 @@ jobs:
       - name: Tier 1 tests
         run: make test
 
-  # Tier 2: all targets including integration tests. Runs on PRs.
+  # Tier 2: all targets including integration tests + fjall backend.
+  # Runs on PRs. This is the merge gate.
   tier-2:
-    name: Tier 2 (all-targets)
+    name: Tier 2 (all-targets + fjall)
     needs: tier-1
     runs-on: ubuntu-latest
     steps:
@@ -41,39 +38,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Tier 2 tests
-        run: make test-slow
-
-  # Tier 3: slow + fjall backend + coverage. Nightly only.
-  tier-3:
-    name: Tier 3 (fjall + coverage)
-    needs: tier-2
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        run: cargo test --all-targets
       - name: Tier 3 tests (fjall backend)
         run: cargo test --workspace --all-targets --features elench/fjall-backend
-      - name: Coverage
-        run: make coverage
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: target/llvm-cov/
-          retention-days: 7
-      - name: Continuous dogfooding
-        run: make dogfood-continuous
-      - name: Upload dogfooding claims
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dogfooding-claims
-          path: /tmp/elench-cont-*/claims-continuous.json
-          retention-days: 7

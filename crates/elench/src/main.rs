@@ -38,6 +38,16 @@ enum StoreConfig {
     Fjall { path: PathBuf },
 }
 
+/// Selected signer entity, parsed from the global `--harness` flag.
+/// When present, elench emits claims as the harness (can emit
+/// harness-observed and verification records). When absent, elench
+/// emits as an agent (cannot emit harness-observed — INV-06).
+#[derive(Debug, Clone, Copy)]
+enum SignerConfig {
+    Agent,
+    Harness,
+}
+
 impl StoreConfig {
     /// Human-readable backend name for diagnostics.
     fn name(&self) -> &'static str {
@@ -142,6 +152,13 @@ fn main() {
         }
     };
 
+    let signer_config = if args.iter().any(|a| a == "--harness") {
+        args.retain(|a| a != "--harness");
+        SignerConfig::Harness
+    } else {
+        SignerConfig::Agent
+    };
+
     if args.len() < 2 {
         print_usage();
         std::process::exit(1);
@@ -151,7 +168,7 @@ fn main() {
     let rest = &args[2..];
 
     match command.as_str() {
-        "emit" => cmd_emit(rest, &store_config),
+        "emit" => cmd_emit(rest, &store_config, signer_config),
         "verify" => cmd_verify(rest),
         "status" => cmd_status(rest),
         "gate" => cmd_gate(rest),
@@ -165,7 +182,7 @@ fn main() {
         "compact" => cmd_compact(rest),
         "reconcile" => cmd_reconcile(rest, &store_config),
         "artifact" => cmd_artifact(rest),
-        "build" => cmd_build(rest),
+        "build" => cmd_build(rest, &store_config, signer_config),
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -190,6 +207,8 @@ fn print_usage() {
     println!("    --store memory         In-memory store (default, no persistence)");
     println!("    --store fjall <path>   Persistent fjall-backed store (requires");
     println!("                           the 'fjall-backend' feature, ADR-0008)");
+    println!("    --harness              Emit as harness (can emit harness-observed");
+    println!("                           and verification records). Default: agent.");
     println!();
     println!("COMMANDS:");
     println!("    emit       Create and sign a claim, store in the store");
@@ -256,14 +275,17 @@ fn parse_claims_file(path: &PathBuf) -> Vec<elench_claim::Claim> {
 // emit — create, sign, and store a claim
 // ---------------------------------------------------------------------------
 
-fn cmd_emit(args: &[String], store_config: &StoreConfig) {
+fn cmd_emit(args: &[String], store_config: &StoreConfig, signer_config: SignerConfig) {
     if args.is_empty() {
         eprintln!("elench emit: requires a claim JSON file");
-        eprintln!("  elench [--store memory|fjall <path>] emit <claim.json>");
+        eprintln!("  elench [--store memory|fjall <path>] [--harness] emit <claim.json>");
         eprintln!();
         eprintln!("The JSON file must contain a Claim with fields matching");
         eprintln!("schema/claim.schema.json. The claim's `id` is computed");
         eprintln!("from content (INV-28); the provided `id` is ignored.");
+        eprintln!();
+        eprintln!("Use --harness to emit as the harness (required for");
+        eprintln!("harness-observed and verification records).");
         std::process::exit(1);
     }
 
@@ -287,18 +309,27 @@ fn cmd_emit(args: &[String], store_config: &StoreConfig) {
     let computed_id = elench_claim::ClaimId::from_content(&claim);
     claim.id = computed_id.clone();
 
+    let (entity, entity_label) = match signer_config {
+        SignerConfig::Harness => (elench_claim::SignerEntity::Harness, "harness"),
+        SignerConfig::Agent => (elench_claim::SignerEntity::Agent, "agent"),
+    };
+
     let signer = elench_claim::SignerIdentity {
-        key_id: "default-agent-key".into(),
-        entity: elench_claim::SignerEntity::Agent,
+        key_id: format!("default-{entity_label}-key"),
+        entity: entity.clone(),
     };
     let log: Vec<elench_claim::Claim> = Vec::new();
 
     if let Err(e) = elench_claim::validate_claim(&claim, &signer, &log) {
         eprintln!("elench emit: claim rejected by validator: {e}");
+        eprintln!(
+            "  (origin.kind={:?}, signer.entity={:?})",
+            claim.origin.kind, signer.entity
+        );
         std::process::exit(1);
     }
 
-    let signing_key = elench_envelope::SigningKey::generate(elench_claim::SignerEntity::Agent);
+    let signing_key = elench_envelope::SigningKey::generate(entity);
     let envelope = elench_envelope::sign(&claim, &signing_key);
 
     let mut store = match open_store(store_config) {
@@ -321,6 +352,7 @@ fn cmd_emit(args: &[String], store_config: &StoreConfig) {
     println!("  kind:     {}", claim.kind_str());
     println!("  tree:     {}", claim.anchor.tree);
     println!("  producer: {}", claim.origin.producer.id);
+    println!("  signer:   {entity_label}");
     println!("  store:    {} ({})", store_config.name(), stored_oid);
     println!();
     println!("envelope:");
@@ -869,7 +901,7 @@ fn compute_build_digest(
     }
 }
 
-#[allow(clippy::unnecessary_debug_formatting)]
+#[allow(clippy::unnecessary_debug_formatting, clippy::too_many_arguments)]
 fn emit_build_provenance(
     tree: &str,
     digest: &elench_store::Oid,
@@ -878,6 +910,8 @@ fn emit_build_provenance(
     stdout: &str,
     stderr: &str,
     artifact_path: Option<&Path>,
+    store_config: &StoreConfig,
+    signer_config: SignerConfig,
 ) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -921,6 +955,39 @@ fn emit_build_provenance(
 
     let computed_id = elench_claim::ClaimId::from_content(&claim);
 
+    // Validate + store (harness entity required for harness-observed).
+    let entity = match signer_config {
+        SignerConfig::Harness => elench_claim::SignerEntity::Harness,
+        SignerConfig::Agent => elench_claim::SignerEntity::Agent,
+    };
+    let signer = elench_claim::SignerIdentity {
+        key_id: "elench-build-harness".into(),
+        entity: entity.clone(),
+    };
+    if let Err(e) = elench_claim::validate_claim(&claim, &signer, &[]) {
+        eprintln!("elench build: claim rejected by validator: {e}");
+        eprintln!("  (build provenance requires --harness to emit harness-observed)");
+        std::process::exit(1);
+    }
+
+    let signing_key = elench_envelope::SigningKey::generate(entity);
+    let _envelope = elench_envelope::sign(&claim, &signing_key);
+
+    let mut store = match open_store(store_config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("elench build: {e}");
+            std::process::exit(1);
+        }
+    };
+    match store.store_claim(&claim) {
+        Ok(oid) => println!("  store:    {} ({})", store_config.name(), oid),
+        Err(e) => {
+            eprintln!("elench build: failed to store claim: {e}");
+            std::process::exit(1);
+        }
+    }
+
     println!("build provenance emitted:");
     println!("  id:       {computed_id}");
     println!("  tree:     {tree}");
@@ -945,7 +1012,7 @@ fn emit_build_provenance(
     println!("(condition 4: K independent producers sign statements with this digest)");
 }
 
-fn cmd_build(args: &[String]) {
+fn cmd_build(args: &[String], store_config: &StoreConfig, signer_config: SignerConfig) {
     if args.is_empty() {
         eprintln!("elench build: requires a command and tree OID");
         eprintln!("  elench build <tree_oid> [--artifact <path>] -- <command...>");
@@ -993,6 +1060,8 @@ fn cmd_build(args: &[String]) {
         &stdout,
         &stderr,
         artifact_path.as_deref(),
+        store_config,
+        signer_config,
     );
 }
 

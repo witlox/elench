@@ -6,7 +6,7 @@ name: Feature Matrix
 #
 # Triggers — only when Cargo.toml, Cargo.lock, or build.rs changes
 # (when a feature flag could plausibly newly fail to compile).
-# Nightly covers transitive dep bumps. workflow_dispatch for manual rerun.
+# Also called from release.yml as part of preflight.
 
 on:
   push:
@@ -23,8 +23,6 @@ on:
       - "Cargo.lock"
       - "**/build.rs"
       - ".github/workflows/feature-matrix.yml"
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch:
 
 env:
