@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "elench"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "ed25519-dalek",
  "elench-anchor",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "elench-anchor"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "elench-claim",
  "elench-store",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "elench-claim"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "elench-predicate",
  "proptest",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "elench-envelope"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "ed25519-dalek",
  "elench-claim",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "elench-gate"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "elench-claim",
  "serde",
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "elench-predicate"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "regex",
  "serde",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "elench-projection"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "elench-claim",
  "elench-store",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "elench-store"
-version = "0.0.1"
+version = "2026.8.47"
 dependencies = [
  "elench-claim",
  "fjall",
