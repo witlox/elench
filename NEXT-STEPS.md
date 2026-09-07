@@ -1,58 +1,57 @@
 # elench — Next Steps
 
-**Last commit:** B2: Build provenance digest — actual artifact (not stdout)
-**State:** 200 tests (default), 207 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
+**Last commit:** B1: Anchor resolution — actually search trees
+**State:** 193 tests (default), 222 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
 
 - A1: Real Ed25519 crypto via ed25519-dalek 3.0
-  - SigningKey::generate(SignerEntity) — real Ed25519 keypair
-  - sign(claim, &SigningKey) — Ed25519 over DSSE PAE
-  - verify(envelope, &[VerifyingKey]) — public key only, no secrets
-  - Key ID = SHA-256 of public key, first 16 hex chars
-  - Tests: 12 envelope + 13 cli + 7 integration, all updated
-
 - A2: --store CLI flag + FjallStore.read_tree
-  - `--store memory` (default) | `--store fjall <path>` parsed as a global
-    flag (before the command or before `--`). Unknown backends and a missing
-    value are rejected with a clear message. `--store fjall` without the
-    `fjall-backend` feature reports how to enable it.
-  - `elench-store` now has `deserialize_tree_bytes` (inverse of
-    `canonical_tree_bytes`); `FjallStore::read_tree` round-trips the
-    canonical form back to `Vec<TreeEntry>` (was a deferred empty-tree stub).
-  - `elench-projection::synthesize` now takes `&dyn StoreBackend` so a
-    runtime-selected backend can be used. Wired into `emit`, `store
-    blob`/`store tree`, and `git` via `open_store(&StoreConfig)`.
-  - `elench` binary gained a `fjall-backend` feature forwarding to
-    `elench-store/fjall-backend`.
-  - `specs/features/store-backend.feature` (5 scenarios). Tests:
-    `deserialize_tree_bytes` round-trip (default tier), `FjallStore::read_tree`
-    round-trip + cross-reopen (feature tier), `--store` flag parsing
-    (unit + CLI), and `interaction_7_projection_uses_stored_tree_{memory,fjall}`.
-
 - B2: Build provenance digest — actual artifact (not stdout)
-  - `elench build <tree> [--artifact <path>] -- <command...>`: when
-    `--artifact <path>` names an existing file, the digest is SHA-256 of
-    that file (the real build output). Without it, falls back to SHA-256 of
-    stdout (current behavior). Missing artifact exits non-zero with a clear
-    message. `--artifact` is parsed before `--`, so the build command's own
-    `--` flags are passed through verbatim.
-  - Evidence `uri` now points to the artifact path when present.
-  - `cmd_build` refactored into `split_build_args`, `parse_build_flags`,
-    `compute_build_digest`, `emit_build_provenance` (clippy clean).
-  - `specs/features/build-provenance.feature` (4 scenarios). Tests:
-    artifact digest, stdout fallback, missing-artifact rejection,
-    `--artifact` parsed before `--`.
+- B1: Anchor resolution — actually search trees
+  - `resolve_path_range(anchor, store)`: navigate tree by path, read
+    blob, verify line range [start, end] is within the blob. Fails on
+    rename, missing path, or range exceeding blob size.
+  - `resolve_symbol(anchor, store)`: traverse all blobs recursively,
+    search for definition patterns (fn name, def name, struct name,
+    etc.). Returns the path of the first blob containing the definition.
+  - `resolve_content_digest(anchor, store)`: check has_blob(digest)
+    directly, then traverse all blobs comparing SHA-256. Returns the
+    path of the first matching blob.
+  - `reconcile(tree, log, store)`: passes the store through to
+    resolve, so reconciliation actually checks tree data. CLI:
+    `elench reconcile <tree> <claims.json>`.
+  - `resolve`/`reconcile` now take `&dyn StoreBackend`.
+    `elench-anchor` gained `elench-store` as a dependency.
+  - 23 anchor tests (real tree search against MemoryStore), 4 CLI
+    reconcile tests.
 
 ## Remaining (in order)
 
-### B1: Anchor resolution — actually search trees
-- `resolve_path_range(anchor, store)` — read tree, find entry at path, check lines
-- `resolve_symbol(anchor, store)` — traverse blobs, search for symbol definition
-- `resolve_content_digest(anchor, store)` — traverse blobs, normalize content, compare digest
-- Multi-strategy: try all three, resolve by agreement (existing logic in elench-anchor)
-- `elench reconcile <tree> <claims.json>` CLI command (currently library-only)
-- ~4 hours
+### C2: proptest — property-based tests
+- Add `proptest = "1"` dev-dependency
+- Tests: INV-25 (content addressing), INV-20 (determinism), INV-13 (pure function), INV-29 (acyclic), INV-28 (idempotent)
+- ~2 hours
+
+### C3: CI — .github/workflows/ci.yml
+- On push: Tier 1 (cargo test --lib + fmt-check + clippy)
+- On PR: Tier 2 (cargo test --all-targets)
+- Nightly: Tier 3 (cargo test --all-targets --features elench/fjall-backend + coverage)
+- ~1 hour
+
+### C1: Git .git/ materialization — write real git objects
+- `elench git init <path>` — creates .git/ directory
+- For each commit in projection: write blob, tree, commit objects to .git/objects/
+- Write .git/refs/heads/main and .git/HEAD
+- Result: `cd <path> && git log` works. `git blame` works. `git checkout` works.
+- ~4-6 hours
+
+### C4: Dogfooding (ongoing)
+- Agents working on elench emit claims about elench's own code
+- Depends on A1 (done), A2 (done), B1 (done), B2 (done)
+- Ongoing effort
+
+## Remaining (in order)
 
 ### C2: proptest — property-based tests
 - Add `proptest = "1"` dev-dependency
