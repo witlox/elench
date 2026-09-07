@@ -16,6 +16,7 @@
 
 # Architecture
 
+- [How It Works](how-it-works.md)
 - [System Overview](architecture/overview.md)
 - [Problem Statement](problem.md)
 - [Anchoring](anchoring.md)
