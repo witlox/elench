@@ -1,0 +1,315 @@
+[
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000001",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-store/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-store/src/lib.rs",
+      "range": [400, 420],
+      "symbol": "store_blob",
+      "content_digest": null
+    },
+    "timestamp": 1700000001,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000002",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-claim/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-claim/src/lib.rs",
+      "range": [464, 500],
+      "symbol": "compute_status",
+      "content_digest": null
+    },
+    "timestamp": 1700000002,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000003",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-claim/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-claim/src/lib.rs",
+      "range": [330, 380],
+      "symbol": "validate_claim",
+      "content_digest": null
+    },
+    "timestamp": 1700000003,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000004",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-projection/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-projection/src/lib.rs",
+      "range": [132, 270],
+      "symbol": "synthesize",
+      "content_digest": null
+    },
+    "timestamp": 1700000004,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000005",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-store/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-store/src/lib.rs",
+      "range": [58, 70],
+      "symbol": "from_blob_data",
+      "content_digest": null
+    },
+    "timestamp": 1700000005,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000006",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-claim/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-claim/src/lib.rs",
+      "range": [51, 55],
+      "symbol": "from_content",
+      "content_digest": null
+    },
+    "timestamp": 1700000006,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000007",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-claim/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-claim/src/lib.rs",
+      "range": [385, 420],
+      "symbol": "check_acyclic",
+      "content_digest": null
+    },
+    "timestamp": 1700000007,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000008",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-gate/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-gate/src/lib.rs",
+      "range": [233, 280],
+      "symbol": "evaluate",
+      "content_digest": null
+    },
+    "timestamp": 1700000008,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_0000000000000000000000000000000000000000000000000000000000000009",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-envelope/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-envelope/src/lib.rs",
+      "range": [328, 370],
+      "symbol": "sign",
+      "content_digest": null
+    },
+    "timestamp": 1700000009,
+    "evidence": [],
+    "depends_on": []
+  },
+  {
+    "id": "cl_000000000000000000000000000000000000000000000000000000000000000a",
+    "kind": "assertion",
+    "target": [],
+    "assertion": {
+      "form": "predicate",
+      "expression": {
+        "language": "elench-predicate-v1",
+        "source": "exists(\"crates/elench-projection/src/lib.rs\")"
+      }
+    },
+    "origin": {
+      "kind": "agent-asserted",
+      "producer": {
+        "id": "elench-dogfooding-agent",
+        "session_id": "dogfooding-001",
+        "hermeticity": "none"
+      }
+    },
+    "anchor": {
+      "tree": "0000000000000000000000000000000000000000000000000000000000000000",
+      "strategy": "multi",
+      "path": "crates/elench-projection/src/lib.rs",
+      "range": [413, 500],
+      "symbol": "materialize",
+      "content_digest": null
+    },
+    "timestamp": 1700000010,
+    "evidence": [],
+    "depends_on": [
+      "cl_0000000000000000000000000000000000000000000000000000000000000001",
+      "cl_0000000000000000000000000000000000000000000000000000000000000004"
+    ]
+  }
+]

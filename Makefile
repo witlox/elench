@@ -1,4 +1,4 @@
-.PHONY: default fmt fmt-check lint test test-slow test-full coverage clean
+.PHONY: default fmt fmt-check lint test test-slow test-full coverage clean dogfood dogfood-emit dogfood-gate dogfood-reconcile dogfood-project
 
 # Default: fmt-check + lint + Tier 1. Run before every commit.
 default: fmt-check lint test
@@ -29,3 +29,28 @@ coverage:
 
 clean:
 	cargo clean
+
+# --- Dogfooding: elench eats its own dog food ---
+
+dogfood:
+	./dogfooding/run.sh
+
+dogfood-emit:
+	cargo build
+	./target/debug/elench emit dogfooding/claims.json
+
+dogfood-gate:
+	cargo build
+	./target/debug/elench gate "0000000000000000000000000000000000000000000000000000000000000000" dogfooding/claims.json
+
+dogfood-reconcile:
+	cargo build
+	./target/debug/elench reconcile "0000000000000000000000000000000000000000000000000000000000000000" dogfooding/claims.json
+
+dogfood-project:
+	cargo build
+	./target/debug/elench git init /tmp/elench-dogfood-git dogfooding/claims.json
+	@echo "--- git log ---"
+	git -C /tmp/elench-dogfood-git log --oneline
+	@echo "--- git fsck ---"
+	git -C /tmp/elench-dogfood-git fsck
