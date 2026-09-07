@@ -1,6 +1,7 @@
 # Anchoring
 
-**Status: unresolved. Everything else in this repository is contingent on it.**
+**Status: E1 PASSED. Multi-strategy (path-range, symbol,
+content-digest) implemented in `elench-anchor`.**
 
 ## The problem
 
@@ -19,7 +20,7 @@ In elench, a "tree" is a content-addressed tree state in the store
 git projection (ADR-0002) is irrelevant to anchoring — anchors resolve
 in elench-native space.
 
-## Candidates
+## Strategies
 
 **Path + line range.** Trivial to compute, rots on the first reformat.
 Baseline for E1, not a proposal.
@@ -41,6 +42,24 @@ report an anchor as `degraded` when strategies disagree rather than silently
 picking one. Costs more storage and introduces a fourth status
 (`anchor-degraded`) that policy has to handle.
 
+## E1 Result
+
+All three strategies are **USABLE** (correct ≥ 85%, wrong ≤ 2%).
+Proceed with multi. See `experiments/E1-anchor-survival-result.md` for
+details.
+
+## Implementation
+
+`elench-anchor` (`crates/elench-anchor/src/lib.rs`) implements:
+
+- `resolve(anchor, &dyn StoreBackend)` — tries all three strategies
+  by actually traversing the tree in the store. Returns `Correct`
+  (all agree), `Degraded` (disagreement), `Failed` (all fail), or
+  `WrongResolution`.
+- `reconcile(tree, log, &dyn StoreBackend)` — for each claim anchored
+  to the tree, resolves the anchor and reports drifted claims. CLI:
+  `elench reconcile <tree> <claims.json>`.
+
 ## Rejected
 
 - **Anchoring to the tree only, not to a span.** Removes the problem by
@@ -49,14 +68,3 @@ picking one. Costs more storage and introduces a fourth status
 - **Requiring agents to re-anchor on every tree change.** Puts the audited
   party in charge of whether its own claims still apply. Violates the
   AGENTS.md asymmetry directly.
-
-## Decision procedure
-
-E1 measures survival rate for each strategy over real refactor sequences.
-Pre-register the threshold before looking at results.
-
-The honest possibility to hold open: if no strategy survives at an acceptable
-rate, the correct response is to narrow the claim granularity — claims about
-module-level or interface-level invariants rather than spans — and accept
-coarser blast radius. That is a smaller product, and it should be preferred
-over a finer product built on anchors that lie.

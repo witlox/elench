@@ -1,0 +1,12 @@
+[book]
+title = "elench Documentation"
+description = "An evidence layer for repositories — and the substrate that replaces git"
+authors = ["Pim Witlox"]
+language = "en"
+src = "docs"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/witlox/elench"
+edit-url-template = "https://github.com/witlox/elench/edit/main/{path}"

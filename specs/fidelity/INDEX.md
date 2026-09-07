@@ -1,10 +1,13 @@
 # Fidelity Index
 
-Test depth per invariant. All phases (0–5) are implemented. 230 tests
-(default), 237 tests with the `fjall-backend` feature. 83% line coverage
-workspace-wide (library crates range from 80% to 99%; the `elench`
-binary's error paths are under-exercised at 42%). fmt clean, clippy
-clean.
+Test depth per invariant. All phases (0–5) are implemented, plus
+post-implementation improvements (anchor resolution, build provenance,
+`.git/` materialization, proptest, conflict detection, continuous
+dogfooding, INV-15 artifact format). 344 tests (default), 351 tests
+with the `fjall-backend` feature. 92% line coverage workspace-wide
+(library crates range from 93% to 99%; the `elench` binary is at 69%
+— all commands have at minimum a happy-path and no-args test). fmt
+clean, clippy clean.
 
 ## Invariants
 

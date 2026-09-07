@@ -1,4 +1,4 @@
-# Release policy
+# Release Policy
 
 The gate is a predicate over claims. The build is a separate, expensive
 function of a tree. Conflating them is what makes a green check mean "some
@@ -37,6 +37,22 @@ consulted at evaluation time.
 This is certificate-revocation shaped and inherits its problems: consumers who
 never re-check are unprotected, and there is no push path. Do not pretend
 otherwise in the docs.
+
+## Artifact format
+
+The artifact is serialized as JSON and validated against
+`schema/artifact.schema.json`. Fields:
+
+- `version` — format version (current: `"0.1"`). Consumers SHOULD reject
+  unknown major versions.
+- `tree` — elench tree OID (64 hex chars).
+- `policy` — policy name under which the artifact was released.
+- `digest` — SHA-256 digest of the artifact (binary, container image).
+- `released_at` — Unix epoch seconds. NOT a verdict.
+- `description` — optional human-readable description.
+
+No verdict field. No pass/fail. The artifact is a pointer; the consumer
+re-evaluates.
 
 ## Deliberately not specified
 

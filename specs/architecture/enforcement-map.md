@@ -1,14 +1,15 @@
 # Enforcement Map
 
-For each invariant, where it is enforced. All invariants are ENFORCED
-(code exists and tests fail if violated), except INV-15 (artifact
-format, future).
+For each invariant, where it is enforced. All 28 invariants are
+ENFORCED (code exists and tests fail if violated). INV-15 was
+upgraded from FUTURE to MOCK — the artifact now carries a `version`
+field and `schema/artifact.schema.json` defines the format.
 
 ## Revocability and status (R1)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-01: Append, not modify | `elench-store::store_blob/tree/claim` — idempotent, no update | ENFORCED |
+| INV-01: Append, not modify | `elench-store::store_blob/tree/claim` — idempotent, no update (MemoryStore + FjallStore) | ENFORCED |
 | INV-02: Prior status visible | `elench-claim::compute_status` — fold reads all records | ENFORCED |
 | INV-03: Claim identity stable | `elench-claim::ClaimId` — content address, immutable | ENFORCED |
 | INV-04: Status computed, not stored | `elench-claim::compute_status` — pure function | ENFORCED |
@@ -32,8 +33,8 @@ format, future).
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
 | INV-13: Gate without build | `elench-gate::evaluate` — takes &[Claim], no build calls | ENFORCED |
-| INV-14: Live evaluation | `elench-gate::evaluate` — called on demand, no cached verdict | ENFORCED |
-| INV-15: Artifact carries (tree, policy) | `elench` CLI — artifact format not yet defined | FUTURE |
+| INV-14: Artifact acceptability is live evaluation | `elench-gate::evaluate` — called on demand, no cached verdict | ENFORCED |
+| INV-15: Artifact carries (tree, policy), not verdict | `elench-gate::Artifact` — `version`, `tree`, `policy`, `digest`, `released_at`; `schema/artifact.schema.json`; no verdict field | ENFORCED (MOCK) |
 
 ## Unevaluated (R5)
 
@@ -46,28 +47,34 @@ format, future).
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-18: elench owns content-addressed store | `elench-store` — no git dependency, owns storage | ENFORCED |
-| INV-19: Git projection is read-only | `elench-projection::synthesize` — takes &Store, no writes | ENFORCED |
-| INV-20: Git synthesis deterministic | `elench-projection` — scenario_deterministic_synthesis_identical_oids | ENFORCED |
-| INV-21: Git projection no side effects | `elench-projection` — scenario_inv19_projection_does_not_write_to_store | ENFORCED |
-| INV-25: Content addressing (SHA-256) | `elench-store::Oid::from_blob_data/from_tree_entries`; `elench-claim::ClaimId::from_content` | ENFORCED |
-| INV-26: Store is sole source of truth | `elench-store` — all views derive from store; `elench-gate` takes &[Claim] | ENFORCED |
-| INV-27: Git projection is lossy, not authoritative | `elench-projection` — scenario_inv27_projection_is_lossy | ENFORCED |
+| INV-18: elench owns content-addressed store | `elench-store` — no git dependency, owns storage; MemoryStore (default) + FjallStore (optional, ADR-0008) | ENFORCED |
+| INV-19: Git projection is read-only | `elench-projection::synthesize` — takes `&dyn StoreBackend`, no writes; `elench-projection::materialize` — writes to filesystem, not to store | ENFORCED |
+| INV-20: Git synthesis deterministic | `elench-projection` — `proptest_inv_20_synthesis_deterministic` + `proptest_inv_20_synthesis_order_independent` | ENFORCED |
+| INV-21: Git projection no side effects | `elench-projection` — `scenario_inv19_projection_does_not_write_to_store` | ENFORCED |
+| INV-25: Content addressing (SHA-256) | `elench-store::Oid::from_blob_data/from_tree_entries` + `deserialize_tree_bytes` round-trip; `elench-claim::ClaimId::from_content`; `FjallStore::read_tree` round-trip (feature tier) | ENFORCED |
+| INV-26: Store is sole source of truth | `elench-store` — all views derive from store; `--store memory|fjall <path>` selects backend at runtime | ENFORCED |
+| INV-27: Git projection is lossy, not authoritative | `elench-projection` — `scenario_inv27_projection_is_lossy` | ENFORCED |
 
 ## Supply-chain composability (R7, ADR-0003)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-22: DSSE/in-toto shared format | `elench-envelope::sign` / `verify`; PREDICATE_TYPE_AGENT | ENFORCED |
+| INV-22: DSSE/in-toto shared format | `elench-envelope::sign` / `verify`; PREDICATE_TYPE_AGENT; Ed25519 signatures (A1) | ENFORCED |
 
 ## Predicate language (ADR-0004)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-23: Expressions executable/deterministic/sandboxable | `elench-predicate` — 4 primitives, not Turing-complete | ENFORCED |
+| INV-23: Expressions executable/deterministic/sandboxable | `elench-predicate` — 4 primitives (grep, test, run, exists), not Turing-complete | ENFORCED |
 
 ## Validator (ADR-0006)
 
 | INV | Enforcement point | Status |
 |-----|-------------------|--------|
-| INV-24: AGENTS.md rules enforced | `elench-claim::validate_claim` — implemented | ENFORCED |
+| INV-24: AGENTS.md rules enforced | `elench-claim::validate_claim` — implemented, all rules enforced | ENFORCED |
+
+## Conflict detection
+
+| Function | Enforcement point | Status |
+|----------|-------------------|--------|
+| `elench_claim::detect_conflicts` | Same-anchor, different expression — `crates/elench-claim/src/lib.rs`; 8 unit tests + 4 CLI tests | ENFORCED |

@@ -9,19 +9,21 @@ rules are ENFORCED, not unevaluated.
 
 | Field | Value |
 |-------|-------|
-| Mode | Implemented (Phases 0–5 complete) |
-| Phase | Post-implementation — E0/E1/E2 PASSED, all phases built |
-| Language | Rust (edition 2024, MSRV 1.85) |
+| Mode | Implemented (Phases 0–5 complete + post-implementation) |
+| Phase | Post-implementation — E0/E1/E2 PASSED, all phases built, continuous dogfooding |
+| Language | Rust (edition 2024, MSRV 1.85). `rust-toolchain.toml` pins stable + rustfmt + clippy. |
 | License | MIT |
-| Crate count | 7 (elench, elench-claim, elench-envelope, elench-store, elench-gate, elench-predicate, elench-projection) |
-| Spec count | 11 feature files, 71 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
+| Crate count | 8 (elench, elench-anchor, elench-claim, elench-envelope, elench-gate, elench-predicate, elench-projection, elench-store) |
+| Spec count | 11 feature files, 71 scenarios, 29 invariants (1 removed), 23 assumptions, 11 failure modes |
 | ADR count | 8 (0001–0008; 0000 is template) |
 | Experiment count | 3 (E0 PASSED 0.72, E1 PASSED 99.4%, E2 PASSED cheap-to-fix) |
-| Fidelity | 28 invariants ENFORCED (was 27 + INV-15 MOCK). 344 tests (351 with fjall-backend), 83% line coverage. |
+| Fidelity | 28 invariants ENFORCED (was 27 + INV-15 MOCK). 344 tests (351 with fjall-backend), 92% line coverage. |
 | Store backend | In-memory (default), fjall (optional feature, ADR-0008). CLI `--store memory|fjall <path>`; `synthesize` takes `&dyn StoreBackend`. |
 | Dogfooding | `dogfooding/claims.json` (10 static), `dogfooding/emit-continuous.sh` (4 CI claims), `make dogfood` / `make dogfood-continuous` |
 | Schema | `schema/claim.schema.json`, `schema/artifact.schema.json` (INV-15) |
 | Conflict detection | `elench_claim::detect_conflicts` — same-anchor, different expression (was over-broad) |
+| CI | Three-tier cascading (push/PR/nightly) + feature matrix |
+| Dep audit | `deny.toml` — license allow-list (MIT-compatible), advisory scanning, yanked = deny |
 
 E0 PASSED (ratio 0.72, threshold ≥ 0.30). All five phases are
 implemented and audited. The validator (ADR-0006) enforces all
@@ -187,6 +189,8 @@ make clean        # cargo clean
 3. `schema/claim.schema.json` — draft data model
 4. `docs/anchoring.md` — the unsolved problem everything rests on
 5. `docs/release-policy.md` — the gate shape
-6. `specs/` — ubiquitous language, domain model, invariants, features,
+6. `docs/architecture/overview.md` — system overview + crate map
+7. `specs/` — ubiquitous language, domain model, invariants, features,
    failure modes, assumptions, fidelity, cross-context, architecture
-7. `specs/architecture/adr/` — ADR log (0000–0007)
+8. `specs/architecture/adr/` — ADR log (0001–0008)
+9. `AGENTS.md` — workflow router + harness contract (this file)

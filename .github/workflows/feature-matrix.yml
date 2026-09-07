@@ -1,0 +1,51 @@
+name: Feature Matrix
+
+# Compiles every named feature flag combination across the
+# workspace. elench has one feature flag (`fjall-backend` on
+# elench), so this runs two jobs: default and --features elench/fjall-backend.
+#
+# Triggers — only when Cargo.toml, Cargo.lock, or build.rs changes
+# (when a feature flag could plausibly newly fail to compile).
+# Nightly covers transitive dep bumps. workflow_dispatch for manual rerun.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "**/build.rs"
+      - ".github/workflows/feature-matrix.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "**/build.rs"
+      - ".github/workflows/feature-matrix.yml"
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  default:
+    name: cargo check (default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets
+
+  fjall-backend:
+    name: cargo check (--features elench/fjall-backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets --features elench/fjall-backend
