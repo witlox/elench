@@ -11,7 +11,7 @@ use elench_claim::{
 use elench_envelope::{SigningKey, sign, verify};
 use elench_gate::{Policy, VerdictResult, evaluate};
 use elench_projection::{git_log_oneline, synthesize};
-use elench_store::{MemoryStore as Store, StoreBackend, Tree, TreeEntry, TreeEntryKind};
+use elench_store::{MemoryStore as Store, Oid, StoreBackend, Tree, TreeEntry, TreeEntryKind};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -545,4 +545,223 @@ fn interaction_7_projection_uses_stored_tree_fjall() {
     assert_eq!(tree.oid, expected_oid);
     assert_eq!(tree.entries.len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// Interaction 8: Git .git/ materialization — real git objects
+//
+// C1: elench git init <path> <claims.json> writes real git objects
+// (blobs, trees, commits) to .git/objects/ (zlib-compressed, git
+// format). After materialization, `git log` works in the output
+// directory. This is the end-to-end test that git itself can read
+// what elench produces.
+// ---------------------------------------------------------------------------
+
+fn build_store_with_tree(store: &mut Store) -> (Oid, Oid) {
+    let lib_content = b"fn main() {\n    println!(\"hello\");\n}\n";
+    let readme_content = b"# test project\n";
+
+    let lib_blob = store.store_blob(lib_content).unwrap();
+    let readme_blob = store.store_blob(readme_content).unwrap();
+
+    let src_tree = store
+        .store_tree(vec![TreeEntry {
+            name: "main.rs".into(),
+            mode: 0o100_644,
+            oid: lib_blob.clone(),
+            kind: TreeEntryKind::Blob,
+        }])
+        .unwrap();
+
+    let root_tree = store
+        .store_tree(vec![
+            TreeEntry {
+                name: "README.md".into(),
+                mode: 0o100_644,
+                oid: readme_blob,
+                kind: TreeEntryKind::Blob,
+            },
+            TreeEntry {
+                name: "src".into(),
+                mode: 0o040_000,
+                oid: src_tree,
+                kind: TreeEntryKind::Tree,
+            },
+        ])
+        .unwrap();
+
+    (root_tree, lib_blob.clone())
+}
+
+#[test]
+fn interaction_8_materialize_git_log_works() {
+    let mut store = Store::new();
+    let (root_tree, _) = build_store_with_tree(&mut store);
+
+    let claim = Claim {
+        id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000090")
+            .unwrap(),
+        kind: ClaimKind::Assertion,
+        target: vec![],
+        assertion: AssertionForm::Predicate {
+            expression: Expression {
+                language: "elench-predicate-v1".into(),
+                source: "exists(\"README.md\")".into(),
+                digest: None,
+            },
+        },
+        origin: Origin {
+            kind: OriginKind::AgentAsserted,
+            producer: Producer {
+                id: "test-builder".into(),
+                session_id: None,
+                hermeticity: None,
+            },
+        },
+        anchor: Anchor {
+            tree: root_tree.as_str().to_string(),
+            strategy: AnchorStrategy::Multi,
+            path: Some("README.md".into()),
+            range: None,
+            symbol: None,
+            content_digest: None,
+        },
+        timestamp: 1_700_000_000,
+        evidence: vec![],
+        depends_on: vec![],
+    };
+
+    let log = vec![claim];
+    let projection = synthesize(&log, &store).unwrap();
+
+    let output_dir = std::env::temp_dir().join(format!(
+        "elench_materialize_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    elench_projection::materialize(&projection, &store, &output_dir).unwrap();
+
+    // .git/ directory must exist
+    assert!(output_dir.join(".git").exists(), ".git/ not created");
+    assert!(
+        output_dir.join(".git/objects").exists(),
+        ".git/objects/ not created"
+    );
+    assert!(
+        output_dir.join(".git/refs/heads/main").exists(),
+        "refs/heads/main not created"
+    );
+    assert!(output_dir.join(".git/HEAD").exists(), "HEAD not created");
+
+    // At least 3 objects: 1 blob + 1 tree + 1 commit (likely more with src tree)
+    let object_count = std::fs::read_dir(output_dir.join(".git/objects"))
+        .unwrap()
+        .filter(|e| {
+            e.as_ref().unwrap().file_name() != "pack" && e.as_ref().unwrap().file_name() != "info"
+        })
+        .count();
+    assert!(
+        object_count >= 2,
+        "expected at least 2 object dirs, got {object_count}"
+    );
+
+    // git log must work
+    let git_output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&output_dir)
+        .arg("log")
+        .arg("--oneline")
+        .output()
+        .expect("failed to run git log");
+
+    assert!(
+        git_output.status.success(),
+        "git log failed: {}",
+        String::from_utf8_lossy(&git_output.stderr)
+    );
+
+    let log_str = String::from_utf8_lossy(&git_output.stdout);
+    assert!(
+        log_str.contains("elench claim:"),
+        "git log should contain commit message: {log_str}"
+    );
+
+    let _ = std::fs::remove_dir_all(&output_dir);
+}
+
+#[test]
+fn interaction_8_materialize_git_checkout_works() {
+    let mut store = Store::new();
+    let (root_tree, _) = build_store_with_tree(&mut store);
+
+    let claim = Claim {
+        id: ClaimId::new("cl_0000000000000000000000000000000000000000000000000000000000000091")
+            .unwrap(),
+        kind: ClaimKind::Assertion,
+        target: vec![],
+        assertion: AssertionForm::Annotation {
+            text: "test checkout".into(),
+        },
+        origin: Origin {
+            kind: OriginKind::AgentAsserted,
+            producer: Producer {
+                id: "test-builder".into(),
+                session_id: None,
+                hermeticity: None,
+            },
+        },
+        anchor: Anchor {
+            tree: root_tree.as_str().to_string(),
+            strategy: AnchorStrategy::Multi,
+            path: None,
+            range: None,
+            symbol: None,
+            content_digest: None,
+        },
+        timestamp: 1_700_000_001,
+        evidence: vec![],
+        depends_on: vec![],
+    };
+
+    let log = vec![claim];
+    let projection = synthesize(&log, &store).unwrap();
+
+    let output_dir = std::env::temp_dir().join(format!(
+        "elench_checkout_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    elench_projection::materialize(&projection, &store, &output_dir).unwrap();
+
+    // git checkout must restore files
+    let checkout_output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&output_dir)
+        .arg("checkout")
+        .arg("main")
+        .arg("--")
+        .output()
+        .expect("failed to run git checkout");
+
+    assert!(
+        checkout_output.status.success(),
+        "git checkout failed: {}",
+        String::from_utf8_lossy(&checkout_output.stderr)
+    );
+
+    // After checkout, README.md should exist
+    assert!(
+        output_dir.join("README.md").exists(),
+        "README.md not checked out"
+    );
+    let readme = std::fs::read_to_string(output_dir.join("README.md")).unwrap();
+    assert!(readme.contains("test project"));
+
+    let _ = std::fs::remove_dir_all(&output_dir);
 }

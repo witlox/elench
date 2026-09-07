@@ -30,6 +30,8 @@
 use elench_claim::{Claim, ClaimKind};
 use elench_store::{Oid, StoreBackend, TreeEntry, TreeEntryKind};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as FmtWrite;
+use std::io::Write as IoWrite;
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
@@ -365,6 +367,287 @@ fn format_timestamp(ts: i64) -> String {
     // Simple formatting — a real implementation would use localtime.
     // For determinism, we always use UTC.
     format!("Thu Jan 1 00:00:00 {ts}")
+}
+
+// ---------------------------------------------------------------------------
+// Materialization — write real git objects to .git/
+// ---------------------------------------------------------------------------
+
+/// Error from [`materialize`].
+#[derive(Debug, Error)]
+pub enum MaterializeError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("store error: {0}")]
+    Store(String),
+
+    #[error("blob {0} not found in store")]
+    BlobNotFound(String),
+
+    #[error("tree {0} not found in store")]
+    TreeNotFound(String),
+
+    #[error("projection has no commits — nothing to materialize")]
+    NoCommits,
+}
+
+/// Materialize a projection into a real `.git/` directory at `path`.
+///
+/// Writes blob, tree, and commit objects (zlib-compressed, git format)
+/// to `.git/objects/`. Writes `.git/refs/heads/main` pointing to the
+/// last commit and `.git/HEAD` → `ref: refs/heads/main`.
+///
+/// After materialization, `cd <path> && git log` works.
+///
+/// **OID translation:** elench blob OIDs (SHA-256 of raw data) are
+/// translated to git blob OIDs (SHA-256 of `blob <len>\0<data>`).
+/// Tree OIDs are recomputed with git blob OIDs. Commit OIDs are
+/// recomputed with git tree OIDs. The elench store is read-only
+/// throughout (INV-19).
+///
+/// # Errors
+///
+/// Returns [`MaterializeError`] if the store cannot be read, the
+/// output path is unwritable, or the projection has no commits.
+pub fn materialize(
+    projection: &Projection,
+    store: &dyn StoreBackend,
+    path: impl AsRef<std::path::Path>,
+) -> Result<(), MaterializeError> {
+    let path = path.as_ref();
+    if projection.commits.is_empty() {
+        return Err(MaterializeError::NoCommits);
+    }
+
+    // Create .git directory structure.
+    let git_dir = path.join(".git");
+    std::fs::create_dir_all(git_dir.join("objects"))?;
+    std::fs::create_dir_all(git_dir.join("refs/heads"))?;
+
+    // OID mappings: elench → git
+    let mut blob_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut tree_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // Write all trees referenced by commits, recursively.
+    // This also writes all blobs encountered along the way.
+    for commit in &projection.commits {
+        write_tree_recursive(path, &commit.tree, store, &mut blob_map, &mut tree_map)?;
+    }
+
+    // Write commit objects (recomputed with git tree OIDs).
+    let mut prev_git_commit: Option<String> = None;
+    let mut last_commit_oid = None;
+
+    for commit in &projection.commits {
+        let git_tree_oid = tree_map
+            .get(&commit.tree)
+            .cloned()
+            .unwrap_or_else(|| commit.tree.clone());
+
+        let mut content = String::new();
+        writeln!(content, "tree {git_tree_oid}").unwrap();
+        if let Some(ref parent) = prev_git_commit {
+            writeln!(content, "parent {parent}").unwrap();
+        }
+        writeln!(
+            content,
+            "author {} <{}> {} +0000",
+            commit.author.name, commit.author.email, commit.author.timestamp
+        )
+        .unwrap();
+        writeln!(
+            content,
+            "committer {} <{}> {} +0000",
+            commit.committer.name, commit.committer.email, commit.committer.timestamp
+        )
+        .unwrap();
+        content.push('\n');
+        content.push_str(&commit.message);
+        if !commit.message.ends_with('\n') {
+            content.push('\n');
+        }
+
+        let git_oid = write_commit_object(path, &content)?;
+        prev_git_commit = Some(git_oid.clone());
+        last_commit_oid = Some(git_oid);
+    }
+
+    // Write refs and HEAD.
+    if let Some(oid) = last_commit_oid {
+        std::fs::write(git_dir.join("refs/heads/main"), format!("{oid}\n"))?;
+    }
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n")?;
+
+    // Minimal config so git recognizes the directory (sha256 object format).
+    // SHA-256 requires repositoryformatversion=1 + extensions.objectFormat.
+    std::fs::write(
+        git_dir.join("config"),
+        "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectFormat = sha256\n",
+    )?;
+
+    Ok(())
+}
+
+/// Recursively write a tree and all its children (blobs + subtrees)
+/// to `.git/objects/`. Reads the tree from the store using its elench
+/// OID, translates all child OIDs to git OIDs, computes the git tree
+/// OID, and writes the compressed object.
+fn write_tree_recursive(
+    path: &std::path::Path,
+    elench_tree_oid: &str,
+    store: &dyn StoreBackend,
+    blob_map: &mut std::collections::HashMap<String, String>,
+    tree_map: &mut std::collections::HashMap<String, String>,
+) -> Result<String, MaterializeError> {
+    // Already written?
+    if let Some(git_oid) = tree_map.get(elench_tree_oid) {
+        return Ok(git_oid.clone());
+    }
+
+    // Read the tree from the store.
+    let oid = elench_store::Oid::new(elench_tree_oid)
+        .map_err(|e| MaterializeError::TreeNotFound(format!("{elench_tree_oid}: {e}")))?;
+
+    let tree = store
+        .read_tree(&oid)
+        .map_err(|e| MaterializeError::TreeNotFound(format!("{elench_tree_oid}: {e}")))?;
+
+    // Build git tree body with translated OIDs.
+    let mut body = Vec::new();
+    for entry in &tree.entries {
+        match entry.kind {
+            elench_store::TreeEntryKind::Blob => {
+                // Write blob if not already written.
+                let git_blob_oid = if let Some(g) = blob_map.get(&entry.oid.to_string()) {
+                    g.clone()
+                } else {
+                    let blob_data = store.read_blob(&entry.oid).map_err(|e| {
+                        MaterializeError::BlobNotFound(format!("{}: {e}", entry.oid))
+                    })?;
+                    let g = write_blob_object(path, &blob_data)?;
+                    blob_map.insert(entry.oid.to_string(), g.clone());
+                    g
+                };
+
+                let mode_str = format!("{:o}", entry.mode);
+                body.extend_from_slice(mode_str.as_bytes());
+                body.push(b' ');
+                body.extend_from_slice(entry.name.as_bytes());
+                body.push(0x00);
+                if git_blob_oid.len() == 64 {
+                    if let Ok(bytes) = hex::decode(&git_blob_oid) {
+                        body.extend_from_slice(&bytes);
+                    }
+                }
+            }
+            elench_store::TreeEntryKind::Tree => {
+                // Recursively write child tree.
+                let git_child_oid =
+                    write_tree_recursive(path, entry.oid.as_str(), store, blob_map, tree_map)?;
+
+                let mode_str = format!("{:o}", entry.mode);
+                body.extend_from_slice(mode_str.as_bytes());
+                body.push(b' ');
+                body.extend_from_slice(entry.name.as_bytes());
+                body.push(0x00);
+                if git_child_oid.len() == 64 {
+                    if let Ok(bytes) = hex::decode(&git_child_oid) {
+                        body.extend_from_slice(&bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    // Compute git tree OID: SHA-256("tree <len>\0<body>")
+    let header = format!("tree {}\0", body.len());
+    let git_oid = git_oid(&header, &body);
+    write_git_object(path, &git_oid, &header, &body)?;
+
+    tree_map.insert(elench_tree_oid.to_string(), git_oid.clone());
+    Ok(git_oid)
+}
+
+/// Write a git blob object: `blob <len>\0<data>`, zlib-compressed.
+/// Returns the git blob OID (SHA-256 of the uncompressed header+data).
+fn write_blob_object(path: &std::path::Path, data: &[u8]) -> Result<String, MaterializeError> {
+    let header = format!("blob {}\0", data.len());
+    let oid = git_oid(&header, data);
+    write_git_object(path, &oid, &header, data)?;
+    Ok(oid)
+}
+
+/// Write a git commit object. Returns the git commit OID.
+fn write_commit_object(path: &std::path::Path, content: &str) -> Result<String, MaterializeError> {
+    let header = format!("commit {}\0", content.len());
+    let oid = git_oid(&header, content.as_bytes());
+    write_git_object(path, &oid, &header, content.as_bytes())?;
+    Ok(oid)
+}
+
+/// Compute a git OID: SHA-256 of `header + body` (uncompressed).
+fn git_oid(header: &str, body: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(header.as_bytes());
+    hasher.update(body);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Write a git object to `.git/objects/<first 2>/<remaining 62>`,
+/// zlib-compressed.
+fn write_git_object(
+    path: &std::path::Path,
+    oid: &str,
+    header: &str,
+    body: &[u8],
+) -> Result<(), MaterializeError> {
+    let dir = path.join(".git/objects").join(&oid[..2]);
+    std::fs::create_dir_all(&dir)?;
+
+    let object_path = dir.join(&oid[2..]);
+    if object_path.exists() {
+        return Ok(()); // Already written (idempotent).
+    }
+
+    // Compress: header + body
+    let mut uncompressed = Vec::with_capacity(header.len() + body.len());
+    uncompressed.extend_from_slice(header.as_bytes());
+    uncompressed.extend_from_slice(body);
+
+    let mut compressed = Vec::new();
+    let mut encoder =
+        flate2::write::ZlibEncoder::new(&mut compressed, flate2::Compression::default());
+    IoWrite::write_all(&mut encoder, &uncompressed)?;
+    encoder.finish()?;
+
+    std::fs::write(&object_path, &compressed)?;
+    Ok(())
+}
+
+/// Minimal hex decode (avoids pulling in a hex crate in projection).
+mod hex {
+    pub fn decode(s: &str) -> Result<Vec<u8>, ()> {
+        if s.len() % 2 != 0 {
+            return Err(());
+        }
+        let mut bytes = Vec::with_capacity(s.len() / 2);
+        for chunk in s.as_bytes().chunks(2) {
+            let high = hex_val(chunk[0])?;
+            let low = hex_val(chunk[1])?;
+            bytes.push((high << 4) | low);
+        }
+        Ok(bytes)
+    }
+
+    fn hex_val(c: u8) -> Result<u8, ()> {
+        match c {
+            b'0'..=b'9' => Ok(c - b'0'),
+            b'a'..=b'f' => Ok(c - b'a' + 10),
+            b'A'..=b'F' => Ok(c - b'A' + 10),
+            _ => Err(()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

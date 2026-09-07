@@ -528,13 +528,109 @@ fn cmd_blast(args: &[String]) {
 // git — materialize the git projection
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 fn cmd_git(args: &[String], store_config: &StoreConfig) {
     if args.is_empty() {
         eprintln!("elench git: requires a claim log file");
         eprintln!("  elench [--store memory|fjall <path>] git <claims.json>");
         eprintln!("  elench [--store memory|fjall <path>] git oneline <claims.json>");
         eprintln!("  elench [--store memory|fjall <path>] git full <claims.json>");
+        eprintln!("  elench [--store memory|fjall <path>] git init <path> <claims.json>");
         std::process::exit(1);
+    }
+
+    // git init <path> <claims.json> — materialize a real .git/ directory
+    if args[0] == "init" {
+        if args.len() < 3 {
+            eprintln!("elench git init: requires <output_path> <claims.json>");
+            eprintln!(
+                "  elench [--store memory|fjall <path>] git init <output_path> <claims.json>"
+            );
+            std::process::exit(1);
+        }
+        let output_path = PathBuf::from(&args[1]);
+        let claims_path = PathBuf::from(&args[2]);
+        if !claims_path.exists() {
+            eprintln!("elench git init: claims file not found: {claims_path:?}");
+            std::process::exit(1);
+        }
+        let log = parse_claims_file(&claims_path);
+        if log.is_empty() {
+            eprintln!("elench git init: empty claim log, nothing to materialize");
+            std::process::exit(1);
+        }
+        let mut store = match open_store(store_config) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("elench git init: {e}");
+                std::process::exit(1);
+            }
+        };
+
+        // Ensure trees referenced by claims are in the store. If a tree
+        // is not in the store (e.g., in-memory store with no prior
+        // `store tree` call), synthesize a minimal tree from the claim's
+        // anchor path and store it.
+        for claim in &log {
+            if claim.kind != elench_claim::ClaimKind::Assertion {
+                continue;
+            }
+            if claim.anchor.tree.is_empty() {
+                continue;
+            }
+            if let Ok(tree_oid) = elench_store::Oid::new(&claim.anchor.tree) {
+                if !store.has_tree(&tree_oid) {
+                    // Synthesize minimal tree from anchor path.
+                    let path = claim
+                        .anchor
+                        .path
+                        .clone()
+                        .unwrap_or_else(|| "unknown".into());
+                    let blob_oid = elench_store::Oid::from_blob_data(path.as_bytes());
+                    // Store the blob first (needed for materialize).
+                    if let Ok(blob_data) = std::fs::read(&path) {
+                        let _ = store.store_blob(&blob_data);
+                    } else {
+                        let _ = store.store_blob(path.as_bytes());
+                    }
+                    let _ = store.store_tree(vec![elench_store::TreeEntry {
+                        name: std::path::Path::new(&path)
+                            .file_name()
+                            .map_or_else(|| path.clone(), |n| n.to_string_lossy().into()),
+                        mode: 0o100_644,
+                        oid: blob_oid,
+                        kind: elench_store::TreeEntryKind::Blob,
+                    }]);
+                }
+            }
+        }
+
+        let projection = match elench_projection::synthesize(&log, &*store) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("elench git init: projection error: {e}");
+                std::process::exit(1);
+            }
+        };
+        match elench_projection::materialize(&projection, &*store, &output_path) {
+            Ok(()) => {
+                println!(
+                    "materialized: {} commits, {} blobs, {} trees",
+                    projection.commits.len(),
+                    projection.blobs.len(),
+                    projection.trees.len()
+                );
+                println!("  output: {}", output_path.display());
+                println!("  ref:   refs/heads/main");
+                println!();
+                println!("  cd {} && git log", output_path.display());
+            }
+            Err(e) => {
+                eprintln!("elench git init: materialization error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
 
     let (format, path) = if args[0] == "oneline" || args[0] == "full" {

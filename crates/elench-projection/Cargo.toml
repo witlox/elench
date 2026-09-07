@@ -13,6 +13,7 @@ elench-claim = { path = "../elench-claim" }
 elench-store = { path = "../elench-store" }
 thiserror = "2"
 sha2 = "0.10"
+flate2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

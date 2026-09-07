@@ -349,6 +349,48 @@ fn scenario_cli_build_artifact_parsed_before_double_dash() {
     );
 }
 
+// --- git init CLI ---
+
+#[test]
+fn scenario_cli_git_init_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["git", "init"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires <output_path> <claims.json>"));
+}
+
+#[test]
+fn scenario_cli_git_init_missing_claims_file_exits_1() {
+    let (_, stderr, code) = elench(&[
+        "git",
+        "init",
+        "/tmp/opencode/elench-nonexistent-output",
+        "/tmp/opencode/elench-nonexistent-claims.json",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("claims file not found"));
+}
+
+#[test]
+fn scenario_cli_git_init_empty_claims_exits_1() {
+    let path = std::env::temp_dir().join(format!(
+        "elench_git_init_empty_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, "[]").unwrap();
+    let (_, stderr, code) = elench(&[
+        "git",
+        "init",
+        "/tmp/opencode/elench-git-init-output",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("empty claim log"));
+}
+
 // --- reconcile CLI ---
 
 #[test]
