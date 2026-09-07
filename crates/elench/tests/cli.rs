@@ -534,3 +534,274 @@ fn scenario_cli_conflicts_same_anchor_detected() {
     assert!(stdout.contains("conflicts:         1"));
     assert!(stdout.contains("src/lib.rs:1-10"));
 }
+
+// --- CLI tests for previously untested commands ---
+
+fn write_temp_json(content: &str, prefix: &str) -> (std::path::PathBuf, String) {
+    let path = std::env::temp_dir().join(format!(
+        "{prefix}_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, content).unwrap();
+    let path_str = path.to_str().unwrap().to_string();
+    (path, path_str)
+}
+
+#[test]
+fn scenario_cli_emit_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["emit"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claim JSON file"));
+}
+
+#[test]
+fn scenario_cli_emit_happy_path() {
+    let claim = r#"{"id":"cl_0000000000000000000000000000000000000000000000000000000000000050","kind":"assertion","target":[],"assertion":{"form":"annotation","text":"test"},"origin":{"kind":"agent-asserted","producer":{"id":"test"}},"anchor":{"tree":"abc123def456789abc123def456789abc123def456789abc123def456789abcd","strategy":"multi","path":"src/main.rs","range":[1,10]},"timestamp":1700000000,"evidence":[],"depends_on":[]}"#;
+    let (path, path_str) = write_temp_json(claim, "elench_emit_happy");
+    let (stdout, _, code) = elench(&["emit", &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0, "stdout was: {stdout}");
+    assert!(stdout.contains("claim emitted:"));
+    assert!(stdout.contains("kind:     assertion"));
+}
+
+#[test]
+fn scenario_cli_verify_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["verify"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires an envelope JSON file"));
+}
+
+#[test]
+fn scenario_cli_verify_invalid_json_exits_1() {
+    let (path, path_str) = write_temp_json("not json", "elench_verify_bad");
+    let (_, stderr, code) = elench(&["verify", &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid envelope JSON"));
+}
+
+#[test]
+fn scenario_cli_log_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["log"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_log_happy_path() {
+    let claims = r#"[{"id":"cl_0000000000000000000000000000000000000000000000000000000000000051","kind":"assertion","target":[],"assertion":{"form":"annotation","text":"a"},"origin":{"kind":"agent-asserted","producer":{"id":"t"}},"anchor":{"tree":"t","strategy":"multi","path":null,"range":null,"symbol":null,"content_digest":null},"timestamp":1700000000,"evidence":[],"depends_on":[]}]"#;
+    let (path, path_str) = write_temp_json(claims, "elench_log_happy");
+    let (stdout, _, code) = elench(&["log", &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("log statistics:"));
+    assert!(stdout.contains("total:            1"));
+}
+
+#[test]
+fn scenario_cli_review_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["review"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a tree OID"));
+}
+
+#[test]
+fn scenario_cli_review_missing_claims_file_exits_1() {
+    let (_, stderr, code) = elench(&["review", TREE_OID]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_review_no_claims_for_tree() {
+    let claims = "[]";
+    let (path, path_str) = write_temp_json(claims, "elench_review_empty");
+    let (stdout, _, code) = elench(&["review", TREE_OID, &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("no claims for tree"));
+}
+
+#[test]
+fn scenario_cli_accept_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["accept"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a tree OID"));
+}
+
+#[test]
+fn scenario_cli_accept_missing_claims_file_exits_1() {
+    let (_, stderr, code) = elench(&["accept", TREE_OID]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_accept_no_claims_named_exits_1() {
+    let claims = "[]";
+    let (path, path_str) = write_temp_json(claims, "elench_accept_noclaims");
+    let (_, stderr, code) = elench(&["accept", TREE_OID, &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("no claims named"));
+}
+
+#[test]
+fn scenario_cli_compact_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["compact"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_compact_empty_log() {
+    let (path, path_str) = write_temp_json("[]", "elench_compact_empty");
+    let (stdout, stderr, code) = elench(&["compact", &path_str]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("empty claim log") || stderr.contains("empty claim log"),
+        "stdout: {stdout}, stderr: {stderr}"
+    );
+}
+
+#[test]
+fn scenario_cli_compact_happy_path() {
+    let claims = r#"[{"id":"cl_0000000000000000000000000000000000000000000000000000000000000052","kind":"assertion","target":[],"assertion":{"form":"annotation","text":"a"},"origin":{"kind":"agent-asserted","producer":{"id":"t"}},"anchor":{"tree":"t","strategy":"multi","path":null,"range":null,"symbol":null,"content_digest":null},"timestamp":1700000000,"evidence":[],"depends_on":[]}]"#;
+    let (path, path_str) = write_temp_json(claims, "elench_compact_happy");
+    let (stdout, _, code) = elench(&["compact", &path_str, "--before", "9999999999"]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("compaction report:") || stdout.contains("cut-off"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
+fn scenario_cli_artifact_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["artifact"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a subcommand"));
+}
+
+#[test]
+fn scenario_cli_artifact_create_happy_path() {
+    let (stdout, _, code) = elench(&[
+        "artifact",
+        "create",
+        TREE_OID,
+        "test-policy",
+        "abc123def456",
+    ]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("\"version\""));
+    assert!(stdout.contains("\"tree\""));
+    assert!(stdout.contains("\"policy\""));
+    assert!(stdout.contains("\"digest\""));
+}
+
+#[test]
+fn scenario_cli_artifact_create_too_few_args_exits_1() {
+    let (_, stderr, code) = elench(&["artifact", "create", TREE_OID]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires <tree> <policy> <digest>"));
+}
+
+#[test]
+fn scenario_cli_artifact_unknown_subcommand_exits_1() {
+    let (_, stderr, code) = elench(&["artifact", "bogus"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("unknown subcommand"));
+}
+
+// --- Error branches for partially tested commands ---
+
+#[test]
+fn scenario_cli_status_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["status"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claim ID"));
+}
+
+#[test]
+fn scenario_cli_gate_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["gate"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a tree OID"));
+}
+
+#[test]
+fn scenario_cli_blast_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["blast"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claim ID"));
+}
+
+#[test]
+fn scenario_cli_blast_invalid_claim_id_exits_1() {
+    let (_, stderr, code) = elench(&["blast", "invalid_id"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid claim ID"));
+}
+
+#[test]
+fn scenario_cli_git_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["git"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claim log file"));
+}
+
+#[test]
+fn scenario_cli_store_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["store"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a subcommand"));
+}
+
+#[test]
+fn scenario_cli_store_blob_no_file_exits_1() {
+    let (_, stderr, code) = elench(&["store", "blob"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a file path"));
+}
+
+#[test]
+fn scenario_cli_store_tree_no_files_exits_1() {
+    let (_, stderr, code) = elench(&["store", "tree"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires at least one file path"));
+}
+
+#[test]
+fn scenario_cli_build_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["build"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a command and tree OID"));
+}
+
+#[test]
+fn scenario_cli_build_empty_command_exits_1() {
+    let (_, stderr, code) = elench(&["build", TREE_OID, "--"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("empty command"));
+}
+
+#[test]
+fn scenario_cli_build_execution_failure_exits_1() {
+    let (_, stderr, code) = elench(&["build", TREE_OID, "--", "/nonexistent/binary"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("failed to execute"));
+}
+
+#[test]
+fn scenario_cli_build_stderr_output() {
+    let (stdout, _, code) = elench(&["build", TREE_OID, "--", "sh", "-c", "echo err >&2"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("stderr (first 500 chars):"));
+    assert!(stdout.contains("err"));
+}
