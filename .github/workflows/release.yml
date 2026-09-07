@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Preflight: Tier 3 (fmt + clippy + deny + all tests + fjall + coverage + dogfooding)
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: Preflight (Tier 3)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Compute and set version
+        id: version
+        run: |
+          bash scripts/set-version.sh
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: fmt-check
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+      - name: Tier 1 — fast unit tests
+        run: cargo test --lib
+      - name: Tier 2 — all targets
+        run: cargo test --all-targets
+      - name: Tier 3 — fjall backend
+        run: cargo test --workspace --all-targets --features elench/fjall-backend
+
+      - name: Coverage
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --workspace --fail-under-lines 50
+
+      - name: Dogfooding
+        run: make dogfood
+
+  # ---------------------------------------------------------------------------
+  # Feature matrix — every feature combination compiles
+  # ---------------------------------------------------------------------------
+  feature-matrix:
+    name: Feature Matrix
+    needs: preflight
+    uses: ./.github/workflows/feature-matrix.yml
+
+  # ---------------------------------------------------------------------------
+  # Build release binaries (x86_64 + aarch64 Linux)
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: [preflight, feature-matrix]
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: rockylinux:9
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf install -y --allowerasing gcc gcc-c++ openssl-devel pkgconf-pkg-config \
+            perl-IPC-Cmd git curl unzip tar gzip make findutils
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set version
+        run: bash scripts/set-version.sh
+
+      - name: Build release
+        run: cargo build --locked --release -p elench
+
+      - name: Package
+        run: |
+          VERSION="${{ needs.preflight.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          STAGED="elench-${ARCH}"
+          mkdir -p "$STAGED"
+          cp target/release/elench "$STAGED/"
+          cp LICENSE-MIT "$STAGED/"
+          cp README.md "$STAGED/"
+          tar czf "elench-${ARCH}-${VERSION}.tar.gz" "$STAGED"
+          sha256sum "elench-${ARCH}-${VERSION}.tar.gz" > "elench-${ARCH}-${VERSION}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: elench-${{ matrix.arch }}
+          path: elench-*.tar.gz*
+
+  # ---------------------------------------------------------------------------
+  # Publish: GitHub release with binary artifacts
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish release
+    needs: [preflight, feature-matrix, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: elench-*
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.preflight.outputs.version }}
+          name: elench v${{ needs.preflight.outputs.version }}
+          generate_release_notes: true
+          body: |
+            Built on Rocky Linux 9 (glibc 2.34, kernel 5.14) — compatible with
+            RHEL 9+, Rocky 9+, AlmaLinux 9+, Ubuntu 22.04+, Debian 12+, SLES 15 SP4+.
+
+            ## Binaries
+
+            | Archive | Arch | Contents |
+            |---------|------|----------|
+            | `elench-x86_64-*.tar.gz` | x86_64 | elench binary + LICENSE + README |
+            | `elench-aarch64-*.tar.gz` | aarch64 | elench binary + LICENSE + README |
+
+            ## Install
+
+            ```sh
+            curl -LO https://github.com/witlox/elench/releases/latest/download/elench-x86_64-${{ needs.preflight.outputs.version }}.tar.gz
+            tar xzf elench-x86_64-${{ needs.preflight.outputs.version }}.tar.gz
+            sudo cp elench-x86_64/elench /usr/local/bin/
+            elench version
+            ```
+
+            ## Quick start
+
+            ```sh
+            elench emit claim.json        # Create, sign, and store a claim
+            elench gate <tree> <log>      # Evaluate the release gate
+            elench git init <path> <log>  # Materialize real .git/
+            ```
+          files: |
+            elench-x86_64/elench-*.tar.gz
+            elench-x86_64/elench-*.tar.gz.sha256
+            elench-aarch64/elench-*.tar.gz
+            elench-aarch64/elench-*.tar.gz.sha256

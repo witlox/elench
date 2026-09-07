@@ -166,9 +166,16 @@ make test         # Tier 1: cargo test --lib
 make test-slow    # Tier 2: Tier 1 + cargo test --all-targets
 make test-full    # Tier 3: Tier 2 + dogfooding e2e
 make coverage     # cargo-llvm-cov --workspace --fail-under-lines 50
-make dogfood      # full dogfooding pipeline (emit, gate, project, materialize)
+make dogfood      # full dogfooding pipeline
+make dogfood-continuous  # continuous: build/test/lint/fmt -> claims -> gate
 make clean        # cargo clean
 ```
+
+CI (`.github/workflows/`):
+- `ci.yml` — push: Tier 1, PR: Tier 1 + Tier 2, nightly: Tier 3 + coverage + dogfooding
+- `docs.yml` — mdBook build + deploy to GitHub Pages (on docs/ changes)
+- `feature-matrix.yml` — compiles every feature flag combination (on Cargo.toml changes + nightly)
+- `release.yml` — `workflow_dispatch` only. Preflight (Tier 3) + build x86_64/aarch64 binaries + GitHub release with artifacts. Uses `scripts/set-version.sh` (YYYY.count(ADR).commitnr).
 
 ## Language and guidelines
 
