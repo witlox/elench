@@ -163,6 +163,7 @@ fn main() {
         "accept" => cmd_accept(rest),
         "conflicts" => cmd_conflicts(rest),
         "compact" => cmd_compact(rest),
+        "reconcile" => cmd_reconcile(rest, &store_config),
         "artifact" => cmd_artifact(rest),
         "build" => cmd_build(rest),
         "help" | "--help" | "-h" => {
@@ -203,6 +204,7 @@ fn print_usage() {
     println!("    accept     Accept named unevaluated gaps (residue-acceptance)");
     println!("    conflicts  List active predicate conflicts for a tree");
     println!("    compact    Compact the claim log (manual, destructive)");
+    println!("    reconcile  Detect anchors that no longer resolve");
     println!("    artifact   Create or verify a release artifact (INV-15)");
     println!("    build      Run a build, capture exit code + digest, emit provenance");
     println!("    help       Print this message");
@@ -1315,6 +1317,83 @@ fn cmd_compact(args: &[String]) {
     println!("(manual, destructive — retired claims are assumed final)");
     println!("(compaction record carries frozen statuses forward)");
     println!("(active claims continue to be revocable, R1 preserved)");
+}
+
+// ---------------------------------------------------------------------------
+// reconcile — detect anchors that no longer resolve (A-A02, FM-P2-03)
+// ---------------------------------------------------------------------------
+
+fn cmd_reconcile(args: &[String], store_config: &StoreConfig) {
+    if args.is_empty() {
+        eprintln!("elench reconcile: requires a tree OID and claims file");
+        eprintln!("  elench [--store memory|fjall <path>] reconcile <tree_oid> <claims.json>");
+        std::process::exit(1);
+    }
+
+    if args.len() < 2 {
+        eprintln!("elench reconcile: requires a claims file");
+        eprintln!("  elench [--store memory|fjall <path>] reconcile <tree_oid> <claims.json>");
+        std::process::exit(1);
+    }
+
+    let tree = &args[0];
+    let log = parse_claims_file(&PathBuf::from(&args[1]));
+    let store = match open_store(store_config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("elench reconcile: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let report = match elench_anchor::reconcile(tree, &log, &*store) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("elench reconcile: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("reconciliation: tree {tree}");
+    println!("  intact:   {} claims", report.intact_count());
+    println!("  drifted:  {} claims", report.drift_count());
+    println!();
+
+    if report.has_drift() {
+        println!("drifted claims:");
+        for d in &report.drifted {
+            println!("  - {}", d.claim_id);
+            println!("    path:   {:?}", d.path);
+            println!("    symbol: {:?}", d.symbol);
+            match &d.resolution {
+                elench_anchor::Resolution::Failed { reasons } => {
+                    println!("    resolution: Failed");
+                    for r in reasons {
+                        println!("      {}: {}", r.strategy, r.reason);
+                    }
+                }
+                elench_anchor::Resolution::Degraded { disagreements } => {
+                    println!("    resolution: Degraded");
+                    for d in disagreements {
+                        println!("      {}: resolved to {}", d.strategy, d.resolved_to);
+                    }
+                }
+                elench_anchor::Resolution::WrongResolution {
+                    strategy,
+                    resolved_to,
+                } => {
+                    println!("    resolution: WrongResolution");
+                    println!("      {strategy}: resolved to {resolved_to}");
+                }
+                elench_anchor::Resolution::Correct { .. } => {}
+            }
+        }
+    } else {
+        println!("(all anchors intact — no drift detected)");
+    }
+    println!();
+    println!("(E1: multi-strategy resolution by agreement)");
+    println!("(A-A02: reconciliation reports drift, does not auto-fix)");
 }
 
 // ---------------------------------------------------------------------------

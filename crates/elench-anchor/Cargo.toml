@@ -10,6 +10,7 @@ description = "Multi-strategy anchor resolution (E1: strategy=multi)"
 
 [dependencies]
 elench-claim = { path = "../elench-claim" }
+elench-store = { path = "../elench-store" }
 thiserror = "2"
 
 [lints]

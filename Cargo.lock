@@ -241,6 +241,7 @@ name = "elench-anchor"
 version = "0.0.1"
 dependencies = [
  "elench-claim",
+ "elench-store",
  "thiserror",
 ]
 

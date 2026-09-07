@@ -348,3 +348,78 @@ fn scenario_cli_build_artifact_parsed_before_double_dash() {
         "digest should be the real artifact, not echo's output: {stdout}"
     );
 }
+
+// --- reconcile CLI ---
+
+#[test]
+fn scenario_cli_reconcile_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["reconcile"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a tree OID"));
+}
+
+#[test]
+fn scenario_cli_reconcile_missing_claims_file_exits_1() {
+    let (_, stderr, code) = elench(&[
+        "reconcile",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_reconcile_empty_log() {
+    let path = std::env::temp_dir().join(format!(
+        "elench_reconcile_empty_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, "[]").unwrap();
+    let (stdout, _, code) = elench(&[
+        "reconcile",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("intact:   0 claims"));
+    assert!(stdout.contains("drifted:  0 claims"));
+    assert!(stdout.contains("no drift"));
+}
+
+#[test]
+fn scenario_cli_reconcile_drifted_claims() {
+    // Claims with anchors that have no path/symbol/digest → all fail.
+    let claims = r#"{
+        "id": "cl_0000000000000000000000000000000000000000000000000000000000000080",
+        "kind": "assertion",
+        "target": [],
+        "assertion": {"form": "annotation", "text": "test"},
+        "origin": {"kind": "agent-asserted", "producer": {"id": "test"}},
+        "anchor": {"tree": "abc123def456789abc123def456789abc123def456789abc123def456789abcd", "strategy": "multi", "path": null, "range": null, "symbol": null, "content_digest": null},
+        "timestamp": 1700000000,
+        "evidence": [],
+        "depends_on": []
+    }"#;
+    let path = std::env::temp_dir().join(format!(
+        "elench_reconcile_drift_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, claims).unwrap();
+    let (stdout, _, code) = elench(&[
+        "reconcile",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("drifted:  1 claims"));
+    assert!(stdout.contains("cl_0000000000000000000000000000000000000000000000000000000000000080"));
+    assert!(stdout.contains("Failed"));
+}
