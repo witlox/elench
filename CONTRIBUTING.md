@@ -91,6 +91,11 @@ See `experiments/` for pre-registered thresholds and results.
 5. Write an ADR (`specs/architecture/adr/`) for significant architectural
    decisions. Number sequentially.
 
+CI (`.github/workflows/ci.yml`) runs automatically:
+- **Push** → Tier 1 (fmt-check + clippy + `cargo test --lib`)
+- **PR** → Tier 1 + Tier 2 (`cargo test --all-targets`)
+- **Nightly** → Tier 1 + Tier 2 + Tier 3 (fjall backend + coverage)
+
 ## License
 
 Contributions are licensed under the [MIT License](LICENSE-MIT).

@@ -1,6 +1,6 @@
 # elench — Next Steps
 
-**Last commit:** C2: proptest — property-based tests
+**Last commit:** C3: CI — .github/workflows/ci.yml
 **State:** 406 tests (default), 432 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
@@ -10,28 +10,18 @@
 - B2: Build provenance digest — actual artifact (not stdout)
 - B1: Anchor resolution — actually search trees
 - C2: proptest — property-based tests
-  - Added `proptest = "1"` as a workspace dev-dependency, forwarded
-    to `elench-claim`, `elench-store`, `elench-projection`.
-  - `elench-claim`: `proptest_inv_25` (SHA-256 deterministic),
-    `proptest_inv_28` (ClaimId is content hash), `proptest_inv_13`
-    (compute_status is pure), `proptest_inv_29` (dependsOn chain
-    terminates).
-  - `elench-store`: `proptest_inv_25` (Oid::from_blob_data
-    deterministic + round-trip + tree OID deterministic),
-    `proptest_inv_28` (store_blob idempotent).
-  - `elench-projection`: `proptest_inv_20` (synthesis deterministic
-    + order-independent).
-  - `specs/features/proptest-property.feature` (5 scenarios).
-  - Tests are fast (proptest default: 256 cases each) and run in
-    Tier 1 (`cargo test --lib`).
+- C3: CI — .github/workflows/ci.yml
+  - **Push** → Tier 1 (fmt-check + clippy + `cargo test --lib`)
+  - **PR** → Tier 1 + Tier 2 (`cargo test --all-targets`)
+  - **Nightly** (`schedule: 0 3 * * *` or `workflow_dispatch`) →
+    Tier 1 + Tier 2 + Tier 3 (`cargo test --all-targets
+    --features elench/fjall-backend` + `make coverage` + upload artifact)
+  - Uses `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`,
+    `taiki-e/install-action@cargo-llvm-cov`.
+  - `RUSTFLAGS: -D warnings` — clippy and compiler warnings fail the build.
+  - CONTRIBUTING.md updated with CI summary.
 
 ## Remaining (in order)
-
-### C3: CI — .github/workflows/ci.yml
-- On push: Tier 1 (cargo test --lib + fmt-check + clippy)
-- On PR: Tier 2 (cargo test --all-targets)
-- Nightly: Tier 3 (cargo test --all-targets --features elench/fjall-backend + coverage)
-- ~1 hour
 
 ### C1: Git .git/ materialization — write real git objects
 - `elench git init <path>` — creates .git/ directory
