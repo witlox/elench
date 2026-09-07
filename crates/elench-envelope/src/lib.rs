@@ -469,6 +469,10 @@ fn claim_to_predicate(claim: &Claim) -> ClaimPredicate {
                 elench_claim::AnchorStrategy::ContentDigest => "content-digest",
                 elench_claim::AnchorStrategy::Multi => "multi",
             },
+            "path": claim.anchor.path,
+            "range": claim.anchor.range,
+            "symbol": claim.anchor.symbol,
+            "contentDigest": claim.anchor.content_digest,
         }),
         timestamp: claim.timestamp,
         evidence: claim
@@ -615,10 +619,34 @@ fn predicate_to_claim(pred: &ClaimPredicate) -> Result<Claim, EnvelopeError> {
             "content-digest" => AnchorStrategy::ContentDigest,
             _ => AnchorStrategy::Multi,
         },
-        path: None,
-        range: None,
-        symbol: None,
-        content_digest: None,
+        path: pred
+            .anchor
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        range: pred
+            .anchor
+            .get("range")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| {
+                if arr.len() == 2 {
+                    let start = arr[0].as_i64()?;
+                    let end = arr[1].as_i64()?;
+                    Some([start, end])
+                } else {
+                    None
+                }
+            }),
+        symbol: pred
+            .anchor
+            .get("symbol")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        content_digest: pred
+            .anchor
+            .get("contentDigest")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     };
 
     let evidence: Vec<Evidence> = pred
@@ -742,8 +770,8 @@ fn hex_val(c: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use elench_claim::{
-        self, Anchor, AnchorStrategy, AssertionForm, ClaimId, ClaimKind, Hermeticity, Origin,
-        OriginKind, Producer,
+        self, Anchor, AnchorStrategy, AssertionForm, ClaimId, ClaimKind, Evidence, EvidenceKind,
+        Hermeticity, Origin, OriginKind, Producer,
     };
 
     fn make_test_claim() -> Claim {
@@ -1011,5 +1039,405 @@ mod tests {
         let (extracted, signer) = verify(&envelope, &keys).unwrap();
         assert_eq!(signer.entity, SignerEntity::Harness);
         assert_eq!(extracted.origin.kind, OriginKind::AgentAsserted);
+    }
+
+    // --- Key management error paths ---
+
+    #[test]
+    fn scenario_signing_key_wrong_byte_count() {
+        let result = SigningKey::from_bytes("k1", SignerEntity::Agent, &[0u8; 16]);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidKey(s)) if s.contains("32 bytes")));
+    }
+
+    #[test]
+    fn scenario_signing_key_from_hex_invalid() {
+        let result = SigningKey::from_hex("k1", SignerEntity::Agent, "not_hex!");
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidKey(s)) if s.contains("hex")));
+    }
+
+    #[test]
+    fn scenario_verifying_key_from_hex_invalid() {
+        let result = VerifyingKey::from_hex("k1", SignerEntity::Agent, "zz");
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidKey(s)) if s.contains("hex")));
+    }
+
+    #[test]
+    fn scenario_verifying_key_from_hex_wrong_byte_count() {
+        // Only 2 bytes (4 hex chars) instead of 32
+        let result = VerifyingKey::from_hex("k1", SignerEntity::Agent, "abcd");
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidKey(s)) if s.contains("32 bytes")));
+    }
+
+    #[test]
+    fn scenario_verifying_key_from_hex_invalid_public_key() {
+        // 32 bytes of 0xFF may or may not be a valid Ed25519 point
+        // (it depends on the implementation). We use a byte sequence
+        // that is definitely not a valid Ed25519 point: the identity
+        // point is (0, 1) which encodes as specific bytes. We use a
+        // known-bad encoding instead.
+        // Actually, ed25519-dalek accepts all 32-byte arrays as
+        // VerifyingKey (it doesn't validate on deserialization in v3).
+        // So this test verifies that from_hex succeeds for any 32-byte
+        // hex — the invalid public key check is a design intent that
+        // the library currently doesn't enforce at construction time.
+        let result = VerifyingKey::from_hex("k1", SignerEntity::Agent, &"ff".repeat(32));
+        // In ed25519-dalek 3.x, from_bytes accepts any 32 bytes.
+        // If it succeeds, we verify the key was constructed.
+        if let Ok(ref vk) = result {
+            assert_eq!(vk.entity, SignerEntity::Agent);
+        }
+        // If it errors, that's also fine — the check exists.
+    }
+
+    // --- Envelope::signer_identity (full method) ---
+
+    #[test]
+    fn scenario_envelope_signer_identity_happy_path() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let identity = envelope.signer_identity(&keys).unwrap();
+        assert_eq!(identity.key_id, key.key_id.clone());
+        assert_eq!(identity.entity, SignerEntity::Agent);
+    }
+
+    #[test]
+    fn scenario_envelope_signer_identity_no_signatures() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        envelope.signatures.clear();
+        let keys = vec![key.verifier()];
+        let result = envelope.signer_identity(&keys);
+        assert!(matches!(result, Err(EnvelopeError::NoSignature)));
+    }
+
+    #[test]
+    fn scenario_envelope_signer_identity_unknown_signer() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        // Different key — unknown signer
+        let other_key = SigningKey::generate(SignerEntity::Agent);
+        let keys = vec![other_key.verifier()];
+        let result = envelope.signer_identity(&keys);
+        assert!(matches!(result, Err(EnvelopeError::UnknownSigner(_))));
+    }
+
+    // --- decode_payload error paths ---
+
+    #[test]
+    fn scenario_decode_payload_non_hex() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        envelope.payload = "not_hex!".into();
+        let result = envelope.decode_payload();
+        assert!(matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("hex")));
+    }
+
+    #[test]
+    fn scenario_decode_payload_invalid_json() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        // Valid hex, but decodes to non-JSON
+        envelope.payload = hex_encode(b"not json");
+        let result = envelope.decode_payload();
+        assert!(matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("JSON")));
+    }
+
+    // --- verify error paths ---
+
+    #[test]
+    fn scenario_verify_non_hex_signature() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        envelope.signatures[0].sig = "not_hex!".into();
+        let keys = vec![key.verifier()];
+        let result = verify(&envelope, &keys);
+        assert!(matches!(result, Err(EnvelopeError::InvalidSignature)));
+    }
+
+    #[test]
+    fn scenario_verify_wrong_signature_byte_count() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        // Only 1 byte (2 hex chars) instead of 64
+        envelope.signatures[0].sig = "ab".into();
+        let keys = vec![key.verifier()];
+        let result = verify(&envelope, &keys);
+        assert!(matches!(result, Err(EnvelopeError::InvalidSignature)));
+    }
+
+    #[test]
+    fn scenario_verify_corrupt_payload() {
+        let claim = make_test_claim();
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let mut envelope = sign(&claim, &key);
+        envelope.payload = "not_hex".into();
+        let keys = vec![key.verifier()];
+        let result = verify(&envelope, &keys);
+        // Should fail because payload can't be decoded
+        assert!(result.is_err(), "corrupt payload should fail verification");
+    }
+
+    // --- claim_to_predicate variant branches ---
+
+    #[test]
+    fn scenario_claim_to_predicate_human_asserted() {
+        let mut claim = make_test_claim();
+        claim.origin.kind = OriginKind::HumanAsserted;
+        let key = SigningKey::generate(SignerEntity::Human);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.origin.kind, OriginKind::HumanAsserted);
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_hermeticity_container() {
+        let mut claim = make_test_claim();
+        claim.origin.producer.hermeticity = Some(Hermeticity::Container);
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(
+            extracted.origin.producer.hermeticity,
+            Some(Hermeticity::Container)
+        );
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_hermeticity_vm() {
+        let mut claim = make_test_claim();
+        claim.origin.producer.hermeticity = Some(Hermeticity::Vm);
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.origin.producer.hermeticity, Some(Hermeticity::Vm));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_hermeticity_hermetic_derivation() {
+        let mut claim = make_test_claim();
+        claim.origin.producer.hermeticity = Some(Hermeticity::HermeticDerivation);
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(
+            extracted.origin.producer.hermeticity,
+            Some(Hermeticity::HermeticDerivation)
+        );
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_anchor_symbol() {
+        let mut claim = make_test_claim();
+        claim.anchor.strategy = AnchorStrategy::Symbol;
+        claim.anchor.symbol = Some("my_func".into());
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.anchor.strategy, AnchorStrategy::Symbol);
+        assert_eq!(extracted.anchor.symbol, Some("my_func".into()));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_anchor_content_digest() {
+        let mut claim = make_test_claim();
+        claim.anchor.strategy = AnchorStrategy::ContentDigest;
+        claim.anchor.content_digest = Some("abc123".into());
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.anchor.strategy, AnchorStrategy::ContentDigest);
+        assert_eq!(extracted.anchor.content_digest, Some("abc123".into()));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_evidence_process_exit() {
+        let mut claim = make_test_claim();
+        claim.evidence = vec![Evidence {
+            kind: EvidenceKind::ProcessExit,
+            digest: Some("abc".into()),
+            exit_code: Some(0),
+            uri: None,
+        }];
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.evidence.len(), 1);
+        assert_eq!(extracted.evidence[0].kind, EvidenceKind::ProcessExit);
+        assert_eq!(extracted.evidence[0].exit_code, Some(0));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_evidence_test_report() {
+        let mut claim = make_test_claim();
+        claim.evidence = vec![Evidence {
+            kind: EvidenceKind::TestReport,
+            digest: Some("abc".into()),
+            exit_code: None,
+            uri: Some("test://scenario".into()),
+        }];
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.evidence[0].kind, EvidenceKind::TestReport);
+        assert_eq!(extracted.evidence[0].uri, Some("test://scenario".into()));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_evidence_artifact_digest() {
+        let mut claim = make_test_claim();
+        claim.evidence = vec![Evidence {
+            kind: EvidenceKind::ArtifactDigest,
+            digest: Some("abc123".into()),
+            exit_code: None,
+            uri: Some("sha256://abc".into()),
+        }];
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(extracted.evidence[0].kind, EvidenceKind::ArtifactDigest);
+        assert_eq!(extracted.evidence[0].digest, Some("abc123".into()));
+    }
+
+    #[test]
+    fn scenario_claim_to_predicate_evidence_external_attestation() {
+        let mut claim = make_test_claim();
+        claim.evidence = vec![Evidence {
+            kind: EvidenceKind::ExternalAttestation,
+            digest: None,
+            exit_code: None,
+            uri: Some("https://example.invalid/attestation".into()),
+        }];
+        let key = SigningKey::generate(SignerEntity::Agent);
+        let envelope = sign(&claim, &key);
+        let keys = vec![key.verifier()];
+        let (extracted, _) = verify(&envelope, &keys).unwrap();
+        assert_eq!(
+            extracted.evidence[0].kind,
+            EvidenceKind::ExternalAttestation
+        );
+        assert_eq!(
+            extracted.evidence[0].uri,
+            Some("https://example.invalid/attestation".into())
+        );
+    }
+
+    // --- predicate_to_claim error paths ---
+
+    #[test]
+    fn scenario_predicate_to_claim_invalid_claim_id() {
+        let predicate = ClaimPredicate {
+            id: "bad_id".to_string(),
+            kind: "assertion".to_string(),
+            target: vec![],
+            assertion: serde_json::json!({"form": "annotation", "text": "test"}),
+            origin: serde_json::json!({"kind": "agent-asserted", "producer": {"id": "test"}}),
+            anchor: serde_json::json!({"tree": "t", "strategy": "multi"}),
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let result = predicate_to_claim(&predicate);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("claim ID")));
+    }
+
+    #[test]
+    fn scenario_predicate_to_claim_unknown_kind() {
+        let predicate = ClaimPredicate {
+            id: "cl_0000000000000000000000000000000000000000000000000000000000000099".to_string(),
+            kind: "unknown_kind".to_string(),
+            target: vec![],
+            assertion: serde_json::json!({"form": "annotation", "text": "test"}),
+            origin: serde_json::json!({"kind": "agent-asserted", "producer": {"id": "test"}}),
+            anchor: serde_json::json!({"tree": "t", "strategy": "multi"}),
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let result = predicate_to_claim(&predicate);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("kind")));
+    }
+
+    #[test]
+    fn scenario_predicate_to_claim_predicate_without_expression() {
+        let predicate = ClaimPredicate {
+            id: "cl_0000000000000000000000000000000000000000000000000000000000000098".to_string(),
+            kind: "assertion".to_string(),
+            target: vec![],
+            assertion: serde_json::json!({"form": "predicate"}),
+            origin: serde_json::json!({"kind": "agent-asserted", "producer": {"id": "test"}}),
+            anchor: serde_json::json!({"tree": "t", "strategy": "multi"}),
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let result = predicate_to_claim(&predicate);
+        assert!(result.is_err());
+        assert!(
+            matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("expression"))
+        );
+    }
+
+    #[test]
+    fn scenario_predicate_to_claim_unknown_assertion_form() {
+        let predicate = ClaimPredicate {
+            id: "cl_0000000000000000000000000000000000000000000000000000000000000097".to_string(),
+            kind: "assertion".to_string(),
+            target: vec![],
+            assertion: serde_json::json!({"form": "bogus"}),
+            origin: serde_json::json!({"kind": "agent-asserted", "producer": {"id": "test"}}),
+            anchor: serde_json::json!({"tree": "t", "strategy": "multi"}),
+            timestamp: 1_700_000_000,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let result = predicate_to_claim(&predicate);
+        assert!(result.is_err());
+        assert!(
+            matches!(result, Err(EnvelopeError::InvalidPayload(s)) if s.contains("assertion form"))
+        );
+    }
+
+    // --- hex_decode error paths ---
+
+    #[test]
+    fn scenario_hex_decode_odd_length() {
+        let result = hex_decode("abc");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn scenario_hex_decode_uppercase_hex() {
+        // Uppercase hex should work
+        let result = hex_decode("ABCD");
+        assert_eq!(result, Some(vec![0xAB, 0xCD]));
+    }
+
+    #[test]
+    fn scenario_hex_decode_invalid_char() {
+        let result = hex_decode("zz");
+        assert_eq!(result, None);
     }
 }

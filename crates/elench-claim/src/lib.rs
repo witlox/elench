@@ -580,6 +580,121 @@ fn collect_dependents(
 }
 
 // ---------------------------------------------------------------------------
+// Conflict detection (same-anchor, different expression)
+// ---------------------------------------------------------------------------
+
+/// A conflict between two active predicate claims anchored to the
+/// same code location but asserting different expressions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflict {
+    /// The first claim in the conflict (older).
+    pub older: ClaimId,
+    /// The second claim in the conflict (newer, wins by last-writer).
+    pub newer: ClaimId,
+    /// The anchor location they share (path+range or symbol).
+    pub anchor_location: String,
+    /// The expression from the older claim.
+    pub older_expression: String,
+    /// The expression from the newer claim.
+    pub newer_expression: String,
+}
+
+/// The anchor location key for a claim. Two claims with the same key
+/// are candidates for conflict (if their expressions differ). Returns
+/// `None` if the claim has neither a path+range nor a symbol — such
+/// claims cannot conflict.
+fn anchor_location_key(claim: &Claim) -> Option<String> {
+    if let (Some(path), [start, end]) = (&claim.anchor.path, &claim.anchor.range.unwrap_or([0; 2]))
+    {
+        if !path.is_empty() {
+            return Some(format!("{path}:{start}-{end}"));
+        }
+    }
+    if let Some(symbol) = &claim.anchor.symbol {
+        if !symbol.is_empty() {
+            return Some(format!("symbol:{symbol}"));
+        }
+    }
+    None
+}
+
+/// Detect conflicts among active predicate claims on the same tree.
+///
+/// A conflict is two active (non-falsified) predicate claims anchored
+/// to the **same code location** (same path+range, or same symbol) but
+/// asserting **different expressions**. Two predicates about different
+/// files are NOT a conflict — both can be true simultaneously.
+///
+/// Only `Assertion` claims with `Predicate` form are considered.
+/// `Falsification`, `Verification`, `Supersession`, and
+/// `ResidueAcceptance` claims are excluded. Falsified predicates are
+/// also excluded (a falsified claim is resolved, not conflicting).
+///
+/// The result is sorted by (`anchor_location`, older.timestamp) for
+/// deterministic output.
+#[must_use]
+pub fn detect_conflicts(log: &[Claim]) -> Vec<Conflict> {
+    // Collect active predicate claims with their anchor location and expression.
+    let mut active: Vec<(&Claim, String, String)> = Vec::new();
+    for claim in log {
+        if claim.kind != ClaimKind::Assertion {
+            continue;
+        }
+        let AssertionForm::Predicate { expression } = &claim.assertion else {
+            continue;
+        };
+        // Skip falsified claims.
+        if compute_status(&claim.id, log).unwrap_or(ClaimStatus::Unevaluated)
+            == ClaimStatus::Falsified
+        {
+            continue;
+        }
+        let Some(key) = anchor_location_key(claim) else {
+            continue;
+        };
+        active.push((claim, key, expression.source.clone()));
+    }
+
+    // Group by anchor location, find pairs with different expressions.
+    let mut conflicts = Vec::new();
+    for i in 0..active.len() {
+        for j in (i + 1)..active.len() {
+            let (a, key_a, expr_a) = &active[i];
+            let (b, key_b, expr_b) = &active[j];
+            if key_a != key_b {
+                continue;
+            }
+            if expr_a == expr_b {
+                continue;
+            }
+            // Same anchor, different expression → conflict.
+            // Last-writer-wins: newer timestamp is the winner.
+            let (older, older_expr, newer, newer_expr) = if a.timestamp <= b.timestamp {
+                (a, expr_a, b, expr_b)
+            } else {
+                (b, expr_b, a, expr_a)
+            };
+            conflicts.push(Conflict {
+                older: older.id.clone(),
+                newer: newer.id.clone(),
+                anchor_location: key_a.clone(),
+                older_expression: older_expr.clone(),
+                newer_expression: newer_expr.clone(),
+            });
+        }
+    }
+
+    // Sort by (anchor_location, older claim ID) for deterministic output.
+    conflicts.sort_by(|a, b| {
+        a.anchor_location
+            .cmp(&b.anchor_location)
+            .then(a.older.as_str().cmp(b.older.as_str()))
+    });
+
+    conflicts
+}
+
+// ---------------------------------------------------------------------------
 // Canonical JSON (for INV-28: claim OID = SHA-256 of canonical JSON)
 // ---------------------------------------------------------------------------
 
@@ -2063,5 +2178,264 @@ mod tests {
             let result = compute_status(&last, &log);
             prop_assert!(result.is_ok(), "compute_status must terminate: {result:?}");
         });
+    }
+
+    // --- Conflict detection (detect_conflicts) ---
+
+    fn make_predicate_with_anchor(
+        id: &str,
+        source: &str,
+        tree: &str,
+        path: Option<&str>,
+        range: Option<[i64; 2]>,
+        symbol: Option<&str>,
+        timestamp: i64,
+    ) -> Claim {
+        Claim {
+            id: ClaimId::new(id).unwrap(),
+            kind: ClaimKind::Assertion,
+            target: vec![],
+            assertion: AssertionForm::Predicate {
+                expression: Expression {
+                    language: "elench-predicate-v1".into(),
+                    source: source.into(),
+                    digest: None,
+                },
+            },
+            origin: Origin {
+                kind: OriginKind::AgentAsserted,
+                producer: Producer {
+                    id: "test".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: tree.into(),
+                strategy: AnchorStrategy::Multi,
+                path: path.map(String::from),
+                range,
+                symbol: symbol.map(String::from),
+                content_digest: None,
+            },
+            timestamp,
+            evidence: vec![],
+            depends_on: vec![],
+        }
+    }
+
+    #[test]
+    fn scenario_conflicts_same_path_range_different_expression() {
+        let a = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000001",
+            "exists(\"a.txt\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_000,
+        );
+        let b = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000002",
+            "exists(\"b.txt\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_001,
+        );
+        let conflicts = detect_conflicts(&[a, b]);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].anchor_location, "src/lib.rs:1-10");
+        assert_ne!(conflicts[0].older_expression, conflicts[0].newer_expression);
+    }
+
+    #[test]
+    fn scenario_conflicts_same_symbol_different_expression() {
+        let a = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000003",
+            "exists(\"a\")",
+            "t1",
+            None,
+            None,
+            Some("parse_input"),
+            1_700_000_000,
+        );
+        let b = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000004",
+            "exists(\"b\")",
+            "t1",
+            None,
+            None,
+            Some("parse_input"),
+            1_700_000_001,
+        );
+        let conflicts = detect_conflicts(&[a, b]);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].anchor_location, "symbol:parse_input");
+    }
+
+    #[test]
+    fn scenario_conflicts_different_paths_no_conflict() {
+        let a = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000005",
+            "exists(\"a.txt\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_000,
+        );
+        let b = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000006",
+            "exists(\"b.txt\")",
+            "t1",
+            Some("src/parser.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_001,
+        );
+        let conflicts = detect_conflicts(&[a, b]);
+        assert_eq!(conflicts.len(), 0, "different paths are not a conflict");
+    }
+
+    #[test]
+    fn scenario_conflicts_same_expression_no_conflict() {
+        let a = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000007",
+            "exists(\"a.txt\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_000,
+        );
+        let b = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000008",
+            "exists(\"a.txt\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_001,
+        );
+        let conflicts = detect_conflicts(&[a, b]);
+        assert_eq!(conflicts.len(), 0, "same expression is not a conflict");
+    }
+
+    #[test]
+    fn scenario_conflicts_falsified_excluded() {
+        let a = make_predicate_with_anchor(
+            "cl_0000000000000000000000000000000000000000000000000000000000000009",
+            "exists(\"a\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_000,
+        );
+        let b = make_predicate_with_anchor(
+            "cl_000000000000000000000000000000000000000000000000000000000000000a",
+            "exists(\"b\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_001,
+        );
+        // Falsify a
+        let falsification = Claim {
+            id: ClaimId::new("cl_000000000000000000000000000000000000000000000000000000000000000b")
+                .unwrap(),
+            kind: ClaimKind::Falsification,
+            target: vec![a.id.clone()],
+            assertion: AssertionForm::Annotation {
+                text: "wrong".into(),
+            },
+            origin: Origin {
+                kind: OriginKind::HarnessObserved,
+                producer: Producer {
+                    id: "harness".into(),
+                    session_id: None,
+                    hermeticity: None,
+                },
+            },
+            anchor: Anchor {
+                tree: "t1".into(),
+                strategy: AnchorStrategy::Multi,
+                path: None,
+                range: None,
+                symbol: None,
+                content_digest: None,
+            },
+            timestamp: 1_700_000_002,
+            evidence: vec![],
+            depends_on: vec![],
+        };
+        let log = vec![a, b, falsification];
+        let conflicts = detect_conflicts(&log);
+        // Only b is active (a is falsified), so no conflict.
+        assert_eq!(conflicts.len(), 0, "falsified claims are excluded");
+    }
+
+    #[test]
+    fn scenario_conflicts_annotations_excluded() {
+        let a = make_claim(
+            "cl_000000000000000000000000000000000000000000000000000000000000000c",
+            ClaimKind::Assertion,
+            OriginKind::AgentAsserted,
+        );
+        // a is an Annotation, not a Predicate — should be excluded.
+        let conflicts = detect_conflicts(&[a]);
+        assert_eq!(conflicts.len(), 0, "annotations are excluded");
+    }
+
+    #[test]
+    fn scenario_conflicts_no_anchor_path_or_symbol_excluded() {
+        let a = make_predicate_with_anchor(
+            "cl_000000000000000000000000000000000000000000000000000000000000000d",
+            "exists(\"a\")",
+            "t1",
+            None,
+            None,
+            None,
+            1_700_000_000,
+        );
+        // No path, no symbol — cannot conflict.
+        let conflicts = detect_conflicts(&[a]);
+        assert_eq!(conflicts.len(), 0);
+    }
+
+    #[test]
+    fn scenario_conflicts_last_writer_wins() {
+        let old = make_predicate_with_anchor(
+            "cl_000000000000000000000000000000000000000000000000000000000000000e",
+            "exists(\"old\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_000,
+        );
+        let new = make_predicate_with_anchor(
+            "cl_000000000000000000000000000000000000000000000000000000000000000f",
+            "exists(\"new\")",
+            "t1",
+            Some("src/lib.rs"),
+            Some([1, 10]),
+            None,
+            1_700_000_010,
+        );
+        let conflicts = detect_conflicts(&[old, new]);
+        assert_eq!(conflicts.len(), 1);
+        // Older claim is the one with the smaller timestamp.
+        assert_eq!(
+            conflicts[0].older.as_str(),
+            "cl_000000000000000000000000000000000000000000000000000000000000000e"
+        );
+        assert_eq!(
+            conflicts[0].newer.as_str(),
+            "cl_000000000000000000000000000000000000000000000000000000000000000f"
+        );
     }
 }

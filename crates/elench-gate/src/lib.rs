@@ -123,6 +123,10 @@ pub enum VerdictResult {
 /// the claim log can re-evaluate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Artifact {
+    /// Artifact format version. Consumers SHOULD reject unknown major
+    /// versions. Current: `"0.1"`.
+    #[serde(default = "default_artifact_version")]
+    pub version: String,
     /// The elench tree OID this artifact was built from.
     pub tree: String,
     /// The policy name under which the artifact was released.
@@ -140,6 +144,14 @@ pub struct Artifact {
     pub description: Option<String>,
 }
 
+/// Default artifact format version.
+fn default_artifact_version() -> String {
+    "0.1".to_string()
+}
+
+/// Current artifact format version.
+pub const ARTIFACT_VERSION: &str = "0.1";
+
 impl Artifact {
     /// Create a new artifact. Does NOT evaluate the gate — the
     /// artifact carries `(tree, policy)`, not a verdict (INV-15).
@@ -151,12 +163,19 @@ impl Artifact {
         released_at: i64,
     ) -> Self {
         Self {
+            version: ARTIFACT_VERSION.to_string(),
             tree: tree.into(),
             policy: policy.into(),
             digest: digest.into(),
             released_at,
             description: None,
         }
+    }
+
+    /// Returns the artifact format version.
+    #[must_use]
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     /// Re-evaluate the gate for this artifact at consumption time.
@@ -1011,12 +1030,16 @@ mod tests {
         assert_eq!(artifact.policy, "test-policy");
         assert_eq!(artifact.digest, "abc123def456");
         assert_eq!(artifact.released_at, 1_700_000_000);
+        assert_eq!(artifact.version(), ARTIFACT_VERSION);
         // No verdict field — INV-15
         let json = artifact.to_json().unwrap();
         assert!(!json.contains("verdict"));
         assert!(!json.contains("result"));
         assert!(!json.contains("pass"));
         assert!(!json.contains("fail"));
+        // Version is present in serialized output
+        assert!(json.contains("\"version\""));
+        assert!(json.contains(ARTIFACT_VERSION));
     }
 
     #[test]
@@ -1025,6 +1048,25 @@ mod tests {
         let json = artifact.to_json().unwrap();
         let decoded = Artifact::from_json(&json).unwrap();
         assert_eq!(artifact, decoded);
+        assert_eq!(decoded.version(), ARTIFACT_VERSION);
+    }
+
+    #[test]
+    fn scenario_artifact_version_defaults_on_deserialize() {
+        // JSON without a version field should default to "0.1"
+        let json = r#"{"tree":"abc","policy":"p","digest":"d","released_at":1700000000}"#;
+        let decoded = Artifact::from_json(json).unwrap();
+        assert_eq!(decoded.version(), ARTIFACT_VERSION);
+    }
+
+    #[test]
+    fn scenario_artifact_unknown_version_still_deserializes() {
+        // Forward compatibility: unknown versions are deserializable
+        // (consumers decide whether to trust them)
+        let json =
+            r#"{"version":"9.9","tree":"abc","policy":"p","digest":"d","released_at":1700000000}"#;
+        let decoded = Artifact::from_json(json).unwrap();
+        assert_eq!(decoded.version(), "9.9");
     }
 
     #[test]

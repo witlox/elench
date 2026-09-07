@@ -465,3 +465,72 @@ fn scenario_cli_reconcile_drifted_claims() {
     assert!(stdout.contains("cl_0000000000000000000000000000000000000000000000000000000000000080"));
     assert!(stdout.contains("Failed"));
 }
+
+// --- conflicts CLI (fixed: same-anchor, different expression) ---
+
+#[test]
+fn scenario_cli_conflicts_no_args_exits_1() {
+    let (_, stderr, code) = elench(&["conflicts"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a tree OID"));
+}
+
+#[test]
+fn scenario_cli_conflicts_missing_claims_file_exits_1() {
+    let (_, stderr, code) = elench(&[
+        "conflicts",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("requires a claims file"));
+}
+
+#[test]
+fn scenario_cli_conflicts_different_paths_no_conflict() {
+    let claims = r#"[
+  {"id":"cl_0000000000000000000000000000000000000000000000000000000000000090","kind":"assertion","target":[],"assertion":{"form":"predicate","expression":{"language":"elench-predicate-v1","source":"exists(\"a.txt\")"}},"origin":{"kind":"agent-asserted","producer":{"id":"test"}},"anchor":{"tree":"abc123def456789abc123def456789abc123def456789abc123def456789abcd","strategy":"multi","path":"src/lib.rs","range":[1,10]},"timestamp":1700000000,"evidence":[],"depends_on":[]},
+  {"id":"cl_0000000000000000000000000000000000000000000000000000000000000091","kind":"assertion","target":[],"assertion":{"form":"predicate","expression":{"language":"elench-predicate-v1","source":"exists(\"b.txt\")"}},"origin":{"kind":"agent-asserted","producer":{"id":"test"}},"anchor":{"tree":"abc123def456789abc123def456789abc123def456789abc123def456789abcd","strategy":"multi","path":"src/parser.rs","range":[1,10]},"timestamp":1700000001,"evidence":[],"depends_on":[]}
+]"#;
+    let path = std::env::temp_dir().join(format!(
+        "elench_conflicts_np_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, claims).unwrap();
+    let (stdout, _, code) = elench(&[
+        "conflicts",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("conflicts:         0"));
+    assert!(stdout.contains("no contradictions detected"));
+}
+
+#[test]
+fn scenario_cli_conflicts_same_anchor_detected() {
+    let claims = r#"[
+  {"id":"cl_0000000000000000000000000000000000000000000000000000000000000092","kind":"assertion","target":[],"assertion":{"form":"predicate","expression":{"language":"elench-predicate-v1","source":"exists(\"a.txt\")"}},"origin":{"kind":"agent-asserted","producer":{"id":"test"}},"anchor":{"tree":"abc123def456789abc123def456789abc123def456789abc123def456789abcd","strategy":"multi","path":"src/lib.rs","range":[1,10]},"timestamp":1700000000,"evidence":[],"depends_on":[]},
+  {"id":"cl_0000000000000000000000000000000000000000000000000000000000000093","kind":"assertion","target":[],"assertion":{"form":"predicate","expression":{"language":"elench-predicate-v1","source":"exists(\"b.txt\")"}},"origin":{"kind":"agent-asserted","producer":{"id":"test"}},"anchor":{"tree":"abc123def456789abc123def456789abc123def456789abc123def456789abcd","strategy":"multi","path":"src/lib.rs","range":[1,10]},"timestamp":1700000001,"evidence":[],"depends_on":[]}
+]"#;
+    let path = std::env::temp_dir().join(format!(
+        "elench_conflicts_sa_{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, claims).unwrap();
+    let (stdout, _, code) = elench(&[
+        "conflicts",
+        "abc123def456789abc123def456789abc123def456789abc123def456789abcd",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("conflicts:         1"));
+    assert!(stdout.contains("src/lib.rs:1-10"));
+}

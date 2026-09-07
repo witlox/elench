@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/elench/artifact/v0.1.json",
+  "title": "elench release artifact (v0.1)",
+  "description": "Carries (tree, policy), NOT a verdict (INV-15). Consumers re-evaluate the release gate at consumption time using the current claim log. The artifact is distributed independently of the claim log — anyone with both can re-evaluate. If a load-bearing claim is falsified after release, the artifact's status changes with no byte moving and no re-signing (R4).",
+
+  "type": "object",
+  "required": ["version", "tree", "policy", "digest", "released_at"],
+  "additionalProperties": false,
+
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Artifact format version. Consumers SHOULD reject artifacts with unknown major versions. Current: '0.1'."
+    },
+
+    "tree": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "The elench tree OID this artifact was built from. NOT a git commit — an elench content address (ADR-0001)."
+    },
+
+    "policy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The policy name under which the artifact was released. Consumers re-evaluate the gate using a policy with this name."
+    },
+
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 digest of the artifact (e.g., binary, container image). This is what condition 4 (builder agreement) checks: K independent producers have signed statements with this digest as the subject."
+    },
+
+    "released_at": {
+      "type": "integer",
+      "description": "Unix epoch seconds. Set by the producer at release time. NOT a verdict — consumers re-evaluate."
+    },
+
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the artifact (optional)."
+    }
+  }
+}

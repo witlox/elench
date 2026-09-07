@@ -1266,55 +1266,23 @@ fn cmd_conflicts(args: &[String]) {
     }
 
     let log = parse_claims_file(&PathBuf::from(&args[1]));
+    let conflicts = elench_claim::detect_conflicts(&log);
 
-    let tree_claims: Vec<&elench_claim::Claim> = log
-        .iter()
-        .filter(|c| c.anchor.tree == *tree && c.kind == elench_claim::ClaimKind::Assertion)
-        .collect();
-
-    let active_predicates: Vec<&&elench_claim::Claim> = tree_claims
+    // Count active predicates for this tree (for the summary line).
+    let active_predicates = log
         .iter()
         .filter(|c| {
-            matches!(c.assertion, elench_claim::AssertionForm::Predicate { .. })
+            c.anchor.tree == *tree
+                && c.kind == elench_claim::ClaimKind::Assertion
+                && matches!(c.assertion, elench_claim::AssertionForm::Predicate { .. })
                 && elench_claim::compute_status(&c.id, &log)
                     .unwrap_or(elench_claim::ClaimStatus::Unevaluated)
                     != elench_claim::ClaimStatus::Falsified
         })
-        .collect();
-
-    if active_predicates.is_empty() {
-        println!("(no active predicate claims for tree {tree})");
-        return;
-    }
-
-    let mut conflicts = Vec::new();
-    for i in 0..active_predicates.len() {
-        for j in (i + 1)..active_predicates.len() {
-            let a = active_predicates[i];
-            let b = active_predicates[j];
-            let expr_a = match &a.assertion {
-                elench_claim::AssertionForm::Predicate { expression } => &expression.source,
-                _ => continue,
-            };
-            let expr_b = match &b.assertion {
-                elench_claim::AssertionForm::Predicate { expression } => &expression.source,
-                _ => continue,
-            };
-            if expr_a != expr_b {
-                let winner = if a.timestamp >= b.timestamp { a } else { b };
-                let loser = if a.timestamp >= b.timestamp { b } else { a };
-                conflicts.push((
-                    a.id.clone(),
-                    b.id.clone(),
-                    winner.id.clone(),
-                    loser.id.clone(),
-                ));
-            }
-        }
-    }
+        .count();
 
     println!("conflicts: tree {tree}");
-    println!("  active predicates: {}", active_predicates.len());
+    println!("  active predicates: {active_predicates}");
     println!("  conflicts:         {}", conflicts.len());
     println!();
 
@@ -1323,10 +1291,11 @@ fn cmd_conflicts(args: &[String]) {
         return;
     }
 
-    for (a, b, winner, loser) in &conflicts {
-        println!("  conflict: {a} vs {b}");
-        println!("    latest (wins): {winner}");
-        println!("    older (flagged): {loser}");
+    for c in &conflicts {
+        println!("  conflict: {} vs {}", c.older, c.newer);
+        println!("    anchor:  {}", c.anchor_location);
+        println!("    older:   {} → {}", c.older, c.older_expression);
+        println!("    newer:   {} → {} (wins)", c.newer, c.newer_expression);
         println!("    (last-writer-wins, flagged for resolution)");
         println!();
     }

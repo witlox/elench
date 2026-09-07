@@ -774,6 +774,7 @@ fn resolve_path(path: &str, ctx: &EvalContext) -> PathBuf {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -1019,5 +1020,335 @@ mod tests {
         let mut file = std::fs::File::create(&path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
         path
+    }
+
+    // --- Parser error path coverage ---
+
+    #[test]
+    fn scenario_parser_trailing_tokens_rejected() {
+        let result = parse(r#"exists("a") extra"#);
+        assert!(result.is_err(), "trailing tokens should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedToken(_))));
+    }
+
+    #[test]
+    fn scenario_parser_unterminated_regex_rejected() {
+        let result = parse("/foo");
+        assert!(result.is_err(), "unterminated regex should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn scenario_parser_unterminated_string_rejected() {
+        let result = parse("\"foo");
+        assert!(result.is_err(), "unterminated string should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn scenario_parser_integer_overflow_rejected() {
+        let result = parse("99999999999999999999999999");
+        assert!(result.is_err(), "integer overflow should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedToken(_))));
+    }
+
+    #[test]
+    fn scenario_parser_unexpected_character_rejected() {
+        let result = parse("@invalid");
+        assert!(result.is_err(), "unexpected character should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedToken(s)) if s.contains('@')));
+    }
+
+    #[test]
+    fn scenario_parser_string_escapes() {
+        let result = parse(r#""hello\nworld""#);
+        assert!(
+            result.is_ok(),
+            "string with escape should parse: {result:?}"
+        );
+    }
+
+    #[test]
+    fn scenario_parser_unknown_field_name_rejected() {
+        let result = parse(r#"exists("a").bogus"#);
+        assert!(result.is_err(), "unknown field should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_eof_after_dot_rejected() {
+        let result = parse(r#"exists("a")."#);
+        assert!(result.is_err(), "EOF after dot should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn scenario_parser_bool_literal_true() {
+        let expr = parse("true").unwrap();
+        assert!(matches!(expr, Expression::Bool(true)));
+    }
+
+    #[test]
+    fn scenario_parser_bool_literal_false() {
+        let expr = parse("false").unwrap();
+        assert!(matches!(expr, Expression::Bool(false)));
+    }
+
+    #[test]
+    fn scenario_parser_grep_non_string_pattern_rejected() {
+        let result = parse(r#"grep(123, "a")"#);
+        assert!(result.is_err(), "non-string pattern should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_grep_non_string_path_rejected() {
+        let result = parse(r#"grep(/foo/, 123)"#);
+        assert!(result.is_err(), "non-string path should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_test_non_string_rejected() {
+        let result = parse("test(123)");
+        assert!(result.is_err(), "non-string test name should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_run_non_string_rejected() {
+        let result = parse("run(123)");
+        assert!(result.is_err(), "non-string run command should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_exists_non_string_rejected() {
+        let result = parse("exists(123)");
+        assert!(result.is_err(), "non-string path should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_missing_lparen_rejected() {
+        let result = parse(r#"grep/foo/, "a")"#);
+        assert!(result.is_err(), "missing lparen should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_missing_rparen_rejected() {
+        let result = parse(r#"grep(/foo/, "a""#);
+        assert!(
+            result.is_err(),
+            "missing rparen should be rejected: {result:?}"
+        );
+    }
+
+    #[test]
+    fn scenario_parser_missing_comma_rejected() {
+        let result = parse(r#"grep(/foo/ "a")"#);
+        assert!(result.is_err(), "missing comma should be rejected");
+        assert!(matches!(result, Err(ParseError::Expected { .. })));
+    }
+
+    #[test]
+    fn scenario_parser_eof_after_operator_rejected() {
+        let result = parse("!");
+        assert!(result.is_err(), "EOF after ! should be rejected");
+        assert!(matches!(result, Err(ParseError::UnexpectedEof)));
+    }
+
+    // --- Evaluator branch coverage ---
+
+    #[test]
+    fn scenario_evaluator_bool_literal() {
+        let expr = parse("true").unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_le_operator() {
+        let tmp = tempfile_named("test_le.txt", "a\nb\nc\n");
+        let expr = parse(&format!(r#"grep(/.*/, "{}") <= 3"#, tmp.to_str().unwrap())).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_gt_operator() {
+        let tmp = tempfile_named("test_gt.txt", "a\nb\nc\n");
+        let expr = parse(&format!(r#"grep(/.*/, "{}") > 1"#, tmp.to_str().unwrap())).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_lt_operator() {
+        let tmp = tempfile_named("test_lt.txt", "a\nb\nc\n");
+        let expr = parse(&format!(r#"grep(/.*/, "{}") < 5"#, tmp.to_str().unwrap())).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_string_eq() {
+        let expr = parse(r#""abc" == "abc""#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_string_ne() {
+        let expr = parse(r#""abc" != "xyz""#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_bool_eq() {
+        let expr = parse("true == true").unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_and_short_circuit_left_false() {
+        let expr = parse(r#"exists("/tmp/opencode/elench_nonexistent_and.txt") && exists("/tmp/opencode/elench_nonexistent_and.txt")"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn scenario_evaluator_and_non_bool_left() {
+        let expr = parse(r#""hello" && exists("a.txt")"#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "non-bool left in && should error");
+            assert!(matches!(result, Err(EvalError::ExpectedBool(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_and_non_bool_right() {
+        let tmp = tempfile_named("test_and_nb.txt", "content\n");
+        let expr = parse(&format!(
+            r#"exists("{}") && "hello""#,
+            tmp.to_str().unwrap()
+        ))
+        .unwrap();
+        let result = evaluate(&expr, &ctx());
+        assert!(result.is_err(), "non-bool right in && should error");
+        assert!(matches!(result, Err(EvalError::ExpectedBool(_))));
+    }
+
+    #[test]
+    fn scenario_evaluator_or_right_side_evaluated() {
+        let tmp = tempfile_named("test_or_right.txt", "content\n");
+        let expr = parse(&format!(
+            r#"exists("/tmp/opencode/elench_nonexistent_or.txt") || exists("{}")"#,
+            tmp.to_str().unwrap()
+        ))
+        .unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn scenario_evaluator_or_non_bool_left() {
+        let expr = parse(r#""hello" || exists("a.txt")"#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "non-bool left in || should error");
+            assert!(matches!(result, Err(EvalError::ExpectedBool(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_not_non_bool() {
+        let expr = parse(r#"!"hello""#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "non-bool in ! should error");
+            assert!(matches!(result, Err(EvalError::ExpectedBool(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_contains_non_string_left() {
+        let expr = parse(r#"exists("Cargo.toml").contains("a")"#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "non-string in .contains should error");
+            assert!(matches!(result, Err(EvalError::ExpectedStr(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_contains_non_string_right() {
+        let tmp = tempfile_named("test_contains_ns.txt", "content\n");
+        let expr = parse(&format!(
+            r#""hello".contains(exists("{}"))"#,
+            tmp.to_str().unwrap()
+        ));
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(
+                result.is_err(),
+                "non-string right in .contains should error"
+            );
+            assert!(matches!(result, Err(EvalError::ExpectedStr(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_matches_non_string_left() {
+        let expr = parse(r#"exists("Cargo.toml").matches(/a/)"#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "non-string in .matches should error");
+            assert!(matches!(result, Err(EvalError::ExpectedStr(_))));
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_matches_invalid_regex() {
+        let expr = parse(r#""hello".matches(/[/)"#);
+        if let Ok(expr) = expr {
+            let result = evaluate(&expr, &ctx());
+            assert!(result.is_err(), "invalid regex should error");
+        }
+    }
+
+    #[test]
+    fn scenario_evaluator_comparison_type_mismatch() {
+        let tmp = tempfile_named("test_type_mismatch.txt", "a\n");
+        let expr = parse(&format!(
+            r#"grep(/.*/, "{}") == "hello""#,
+            tmp.to_str().unwrap()
+        ))
+        .unwrap();
+        let result = evaluate(&expr, &ctx());
+        assert!(result.is_err(), "type mismatch in comparison should error");
+        assert!(matches!(result, Err(EvalError::ExpectedInt(_))));
+    }
+
+    #[test]
+    fn scenario_evaluator_invalid_field_access() {
+        let expr = parse(r#"exists("Cargo.toml").exit"#).unwrap();
+        let result = evaluate(&expr, &ctx());
+        assert!(result.is_err(), "invalid field access should error");
+        assert!(matches!(result, Err(EvalError::InvalidField(_))));
+    }
+
+    #[test]
+    fn scenario_evaluator_run_stdout() {
+        let expr = parse(r#"run("echo hello").stdout"#).unwrap();
+        let result = evaluate(&expr, &ctx()).unwrap();
+        match result {
+            Value::Str(s) => assert!(s.contains("hello"), "stdout should contain hello: {s}"),
+            other => panic!("expected Str, got {other:?}"),
+        }
     }
 }
