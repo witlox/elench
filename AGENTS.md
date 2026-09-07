@@ -14,11 +14,12 @@ rules are ENFORCED, not unevaluated.
 | Language | Rust (edition 2024, MSRV 1.85) |
 | License | MIT |
 | Crate count | 7 (elench, elench-claim, elench-envelope, elench-store, elench-gate, elench-predicate, elench-projection) |
-| Spec count | 8 feature files, 49 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
+| Spec count | 11 feature files, 69 scenarios, 29 invariants (1 removed), 20 assumptions, 11 failure modes |
 | ADR count | 8 (0001–0008; 0000 is template) |
 | Experiment count | 3 (E0 PASSED 0.72, E1 PASSED 99.4%, E2 PASSED cheap-to-fix) |
-| Fidelity | 27 invariants ENFORCED, 1 future (INV-15 artifact format). 196 tests (203 with fjall-backend), 81% line coverage workspace-wide (~91% libs). |
+| Fidelity | 27 invariants ENFORCED, 1 future (INV-15 artifact format). 230 tests (237 with fjall-backend), 83% line coverage. |
 | Store backend | In-memory (default), fjall (optional feature, ADR-0008). CLI `--store memory|fjall <path>`; `synthesize` takes `&dyn StoreBackend`. |
+| Dogfooding | `dogfooding/claims.json` (10 claims), `make dogfood` pipeline |
 
 E0 PASSED (ratio 0.72, threshold ≥ 0.30). All five phases are
 implemented and audited. The validator (ADR-0006) enforces all
@@ -158,9 +159,10 @@ make fmt          # format all crates
 make fmt-check    # check formatting without writing
 make lint         # cargo clippy --all-targets -- -D warnings
 make test         # Tier 1: cargo test --lib
-make test-slow    # Tier 2: Tier 1 + all tests including ignored
-make test-full    # Tier 3: Tier 2 + e2e (not yet configured)
+make test-slow    # Tier 2: Tier 1 + cargo test --all-targets
+make test-full    # Tier 3: Tier 2 + dogfooding e2e
 make coverage     # cargo-llvm-cov --workspace --fail-under-lines 50
+make dogfood      # full dogfooding pipeline (emit, gate, project, materialize)
 make clean        # cargo clean
 ```
 

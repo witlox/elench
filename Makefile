@@ -20,9 +20,9 @@ test:
 test-slow: test
 	cargo test --all-targets
 
-# Tier 3: Tier 2 + e2e against real git repositories. Pre-merge / nightly.
+# Tier 3: Tier 2 + dogfooding e2e. Pre-merge / nightly.
 test-full: test-slow
-	@echo "e2e: not yet configured (requires real git repos for anchor survival)"
+	./dogfooding/run.sh "$(shell mktemp -d -t elench-test-full-XXXXXX)"
 
 coverage:
 	cargo llvm-cov --workspace --fail-under-lines 50

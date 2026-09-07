@@ -1,9 +1,10 @@
 # Fidelity Index
 
-Test depth per invariant. All phases (0–5) are implemented. 196 tests
-(default), 203 tests with the `fjall-backend` feature. 81% line coverage
-workspace-wide (~91% across the library crates; the `elench` binary's
-command/error paths are under-exercised). fmt clean, clippy clean.
+Test depth per invariant. All phases (0–5) are implemented. 230 tests
+(default), 237 tests with the `fjall-backend` feature. 83% line coverage
+workspace-wide (library crates range from 80% to 99%; the `elench`
+binary's error paths are under-exercised at 42%). fmt clean, clippy
+clean.
 
 ## Invariants
 
@@ -50,10 +51,13 @@ command/error paths are under-exercised). fmt clean, clippy clean.
 | claim-revocation | 7 | MOCK | elench-claim: compute_status + blast_radius + dependsOn propagation |
 | origin-typing | 6 | MOCK | elench-claim: validate_claim cross-checks |
 | release-gate | 9 | MOCK | elench-gate: evaluate, 4 conditions, hermeticity floor |
-| anchor-resolution | 5 | NONE | E1 PASSED; elench-anchor deferred (strategy=multi) |
+| anchor-resolution | 10 | MOCK | elench-anchor: resolve_path_range/symbol/content_digest, reconcile CLI |
 | unevaluated-residue | 6 | MOCK | elench-claim: ClaimStatus::Unevaluated |
 | git-projection | 4 | MOCK | elench-projection: synthesize, git_log_oneline/full |
-| store-backend | 5 | MOCK | --store flag (memory default, fjall optional); FjallStore::read_tree round-trips canonical bytes; deserialize_tree_bytes corrupt-input rejection |
+| store-backend | 5 | MOCK | elench-store: --store flag, FjallStore::read_tree round-trip |
+| build-provenance | 4 | MOCK | elench: --artifact flag, SHA-256 of build output |
+| proptest-property | 5 | PROPERTY | proptest: INV-25/20/13/29/28 (256 cases each) |
+| dogfooding | 5 | MOCK | elench records claims about its own invariants |
 
 ## Experiments
 
@@ -74,9 +78,14 @@ All phases (0–5) are **implemented**, plus elench-anchor and the store-backend
 - Phase 5: elench binary (9 unit + 19 cli + 8 integration tests; 9 integration with `fjall-backend`)
 - elench-anchor (12 tests)
 
-Total: 196 tests (default), 203 tests with `fjall-backend`. 81% line coverage
-workspace-wide (~91% across library crates). fmt clean, clippy clean.
+Total: 230 tests (default), 237 tests with `fjall-backend`. 83% line coverage
+workspace-wide. fmt clean, clippy clean.
 
 Store backend: in-memory (default), fjall (optional feature, ADR-0008).
 `--store memory|fjall <path>` selects the backend at the CLI; `synthesize`
-takes `&dyn StoreBackend` so any command can target either.
+takes `&dyn StoreBackend` so any command can target either. `materialize`
+writes real zlib-compressed git objects to `.git/objects/`.
+
+Dogfooding: `dogfooding/claims.json` (10 claims about elench's own
+invariants), `make dogfood` runs the full pipeline (emit, gate, log,
+review, conflicts, git projection, materialize, verify).
