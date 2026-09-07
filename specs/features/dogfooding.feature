@@ -33,3 +33,17 @@ Feature: Dogfooding
     When elench reconcile <tree> dogfooding/claims.json runs
     Then the report shows drifted claims (anchors cannot resolve)
     And the exit code is 0
+
+  Scenario: Continuous dogfooding emits harness-observed claims
+    Given elench's own source tree
+    When make dogfood-continuous runs
+    Then 4 claims are emitted (build, test, lint, fmt)
+    And each claim has origin.kind = harness-observed
+    And the gate passes (all verifications, no falsifications)
+    And the claims are accumulated in a single JSON file
+
+  Scenario: Continuous dogfooding runs in CI nightly
+    Given the nightly CI job triggers
+    When the tier-3 job completes
+    Then make dogfood-continuous runs
+    And the resulting claims are uploaded as a CI artifact

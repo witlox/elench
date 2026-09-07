@@ -68,3 +68,12 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/
           retention-days: 7
+      - name: Continuous dogfooding
+        run: make dogfood-continuous
+      - name: Upload dogfooding claims
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dogfooding-claims
+          path: /tmp/elench-cont-*/claims-continuous.json
+          retention-days: 7

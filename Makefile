@@ -35,6 +35,9 @@ clean:
 dogfood:
 	./dogfooding/run.sh
 
+dogfood-continuous:
+	./dogfooding/emit-continuous.sh
+
 dogfood-emit:
 	cargo build
 	./target/debug/elench emit dogfooding/claims.json
