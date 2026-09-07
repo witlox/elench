@@ -1,14 +1,10 @@
 # elench
 
-An evidence layer for repositories — and the substrate that replaces git.
+An evidence layer for repositories — reimagining git for agentic flow.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 [![Rust: stable](https://img.shields.io/badge/rust-stable-orange.svg)](rust-toolchain.toml)
 [![CI](https://github.com/witlox/elench/actions/workflows/ci.yml/badge.svg)](https://github.com/witlox/elench/actions/workflows/ci.yml)
-
-**344 tests** (default), **351** (with `fjall-backend`), **92% line
-coverage**. All three binding experiments PASSED. fmt clean, clippy
-clean.
 
 ## What this is
 
