@@ -1,7 +1,7 @@
 # elench — Next Steps
 
-**Last commit:** C3: CI — .github/workflows/ci.yml
-**State:** 406 tests (default), 432 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
+**Last commit:** C1: Git .git/ materialization — write real git objects
+**State:** 411 tests (default), 237 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
 
@@ -11,28 +11,28 @@
 - B1: Anchor resolution — actually search trees
 - C2: proptest — property-based tests
 - C3: CI — .github/workflows/ci.yml
-  - **Push** → Tier 1 (fmt-check + clippy + `cargo test --lib`)
-  - **PR** → Tier 1 + Tier 2 (`cargo test --all-targets`)
-  - **Nightly** (`schedule: 0 3 * * *` or `workflow_dispatch`) →
-    Tier 1 + Tier 2 + Tier 3 (`cargo test --all-targets
-    --features elench/fjall-backend` + `make coverage` + upload artifact)
-  - Uses `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`,
-    `taiki-e/install-action@cargo-llvm-cov`.
-  - `RUSTFLAGS: -D warnings` — clippy and compiler warnings fail the build.
-  - CONTRIBUTING.md updated with CI summary.
+- C1: Git .git/ materialization — write real git objects
+  - `elench projection::materialize(projection, store, path)` writes
+    real git objects (blobs, trees, commits) to `.git/objects/`,
+    zlib-compressed in git's native format.
+  - OID translation: elench blob OIDs (SHA-256 of raw data) → git
+    blob OIDs (SHA-256 of `blob <len>\0<data>`), tree OIDs recomputed
+    with git blob OIDs, commit OIDs recomputed with git tree OIDs.
+  - Trees written recursively: `write_tree_recursive` reads child
+    trees from the store, translates OIDs, writes parents after all
+    children.
+  - `.git/config` uses `repositoryformatversion=1` +
+    `extensions.objectFormat=sha256`. `.git/refs/heads/main` → last
+    commit. `.git/HEAD` → `ref: refs/heads/main`.
+  - CLI: `elench [--store ...] git init <output_path> <claims.json>`.
+  - Tests: `git log` works, `git checkout` restores files, 3 CLI
+    error-handling tests. `flate2` added as workspace dep.
 
-## Remaining (in order)
-
-### C1: Git .git/ materialization — write real git objects
-- `elench git init <path>` — creates .git/ directory
-- For each commit in projection: write blob, tree, commit objects to .git/objects/
-- Write .git/refs/heads/main and .git/HEAD
-- Result: `cd <path> && git log` works. `git blame` works. `git checkout` works.
-- ~4-6 hours
+## Remaining
 
 ### C4: Dogfooding (ongoing)
 - Agents working on elench emit claims about elench's own code
-- Depends on A1 (done), A2 (done), B1 (done), B2 (done), C2 (done)
+- Depends on A1 (done), A2 (done), B1 (done), B2 (done), C2 (done), C3 (done), C1 (done)
 - Ongoing effort
 
 ## Remaining (in order)
