@@ -56,25 +56,23 @@ INV-15 now MOCK with 6 tests). 0 future.
 | release-gate | 9 | MOCK | elench-gate: evaluate, 4 conditions. 1 scenario untested (contradictory predicates — FM-P2-02 known limitation) |
 | anchor-resolution | 11 | MOCK | elench-anchor: resolve_path_range/symbol/content_digest, reconcile CLI. 1 scenario untested (wrong-resolution — dead code) |
 | unevaluated-residue | 6 | MOCK | elench-claim: ClaimStatus::Unevaluated. 1 scenario untested (corrupt cascade — no corrupt status) |
-| git-projection | 4 | MOCK | elench-projection: synthesize, git_log_oneline/full, materialize. 2 scenarios untested (git blame, write-through-git rejected) |
+| git-projection | 4 | MOCK | elench-projection: synthesize, git_log_oneline/full, materialize, git blame, write-through rejected. All 4 covered. |
 | store-backend | 5 | MOCK | elench-store: --store flag, FjallStore::read_tree round-trip. All 5 covered. |
 | build-provenance | 4 | SHALLOW | elench: --artifact flag, SHA-256 of build output. CLI output checks, not in-process claim verification. |
 | proptest-property | 5 | PROPERTY | proptest: INV-25/20/13/29/28 (256 cases each). All 5 covered. |
 | dogfooding | 7 | NONE | Shell scripts (run.sh, emit-continuous.sh) with no assertions. 6 of 7 scenarios have no Rust test. |
 
-**71 scenarios total.** 57 tested, 14 untested (see per-feature notes).
-**344 tests** (default), **351** (with `fjall-backend`). 92% line
+**71 scenarios total.** 59 tested, 12 untested (see per-feature notes).
+**346 tests** (default), **353** (with `fjall-backend`). 92% line
 coverage.
 
-## Untested scenarios (14)
+## Untested scenarios (12)
 
 | Feature | Scenario | Reason |
 |---------|----------|--------|
 | anchor-resolution | Wrong-resolution is reported distinctly from failure | `StrategyOutcome::Wrong` is dead code (`#[allow(dead_code)]`) |
 | claim-emission | A claim with empty dependsOn is accepted with a warning | `ValidationError::EmptyDependsOn` is defined but never returned |
 | dogfooding (×6) | Dogfooding claims emitted/stored, gate, log stats, git projection, continuous emission, CI nightly | Shell scripts with `\|\| true`, no assertions |
-| git-projection | git blame maps to claims | No test exercises `git blame` after materialization |
-| git-projection | Write through git is rejected | No test verifies git writes don't propagate back |
 | origin-typing (×2) | Harness-observed and agent-asserted claims are distinct; human-asserted distinct from agent | No query-by-origin.kind function exists |
 | release-gate | Two contradictory predicates: gate passes (known limitation) | FM-P2-02 not tested |
 | unevaluated-residue | A corrupt claim cascades to unevaluated dependents | No "corrupt" status distinction; `compute_status` returns `Err(ClaimNotFound)` |
