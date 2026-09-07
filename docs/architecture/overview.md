@@ -15,7 +15,7 @@ unevaluated**. When agents write code at volume, there is no human
 head to sample and review bandwidth does not scale. The record has to
 become durable state or it does not exist.
 
-See [`problem.md`](problem.md) for the full requirements (R1–R7),
+See [`problem.md`](../problem.md) for the full requirements (R1–R7),
 binding constraints (BC1–BC4), and anti-goals.
 
 ## The one claim that makes this worth building
@@ -88,10 +88,14 @@ for the implementation order (all phases COMPLETE).
   claims and build provenance share the same signing path.
 - **ADR-0004**: A small DSL of check primitives (grep, test, run,
   exists). Not Turing-complete. Gated by E0 (ratio 0.72).
+- **ADR-0005**: Implementation substrate — Rust, content-addressed
+  store. elench owns its own storage; no git dependency underneath.
+- **ADR-0006**: AGENTS.md emission rules are enforced by a validator.
+  All MUST rules are implemented; prose gates are now real gates.
 - **ADR-0007**: One commit per tree-changing claim. Deterministic
   author/committer/timestamp derivation.
 - **ADR-0008**: Fjall as the persistent content-addressed backend.
   In-memory by default; `--store fjall <path>` enables persistence.
 
-See [`specs/architecture/adr/`](../specs/architecture/adr/) for all
+See [`specs/architecture/adr/`](../../specs/architecture/adr/) for all
 ADRs (0001–0008).

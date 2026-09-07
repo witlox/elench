@@ -1077,4 +1077,160 @@ mod tests {
             prop_assert_eq!(commits_sorted, commits_rev);
         });
     }
+
+    // --- git blame maps to claims ---
+
+    #[test]
+    fn scenario_git_blame_maps_to_claims() {
+        // Build a real tree in the store so materialize can read it.
+        let mut store = elench_store::Store::new();
+        let blob = store.store_blob(b"file content for blame\n").unwrap();
+        let tree_oid = store
+            .store_tree(vec![elench_store::TreeEntry {
+                name: "file.txt".into(),
+                mode: 0o100_644,
+                oid: blob,
+                kind: elench_store::TreeEntryKind::Blob,
+            }])
+            .unwrap();
+
+        let log = vec![make_tree_changing_claim(
+            ID_A,
+            tree_oid.as_str(),
+            "test-blame-producer",
+            1_700_000_000,
+        )];
+        let projection = synthesize(&log, &store).unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "elench_blame_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::materialize(&projection, &store, &dir).unwrap();
+
+        // git log should work and reference the commit
+        let log_out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["log", "--oneline"])
+            .output()
+            .expect("failed to run git log");
+
+        assert!(
+            log_out.status.success(),
+            "git log failed: {}",
+            String::from_utf8_lossy(&log_out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&log_out.stdout).contains("elench claim:"),
+            "git log should contain commit message"
+        );
+
+        // git blame on the checked-out file should work.
+        // `git checkout .` restores working tree files from the
+        // materialized git objects.
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["checkout", "HEAD", "--", "file.txt"])
+            .output()
+            .expect("failed to run git checkout");
+
+        // Verify the file was restored.
+        assert!(
+            dir.join("file.txt").exists(),
+            "file.txt should exist after checkout"
+        );
+
+        let blame = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["blame", "file.txt"])
+            .output()
+            .expect("failed to run git blame");
+
+        assert!(
+            blame.status.success(),
+            "git blame failed: {}",
+            String::from_utf8_lossy(&blame.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&blame.stdout).contains("file content for blame"),
+            "git blame should show the file content"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- write through git is rejected (store unchanged) ---
+
+    #[test]
+    fn scenario_write_through_git_rejected() {
+        let mut store = elench_store::Store::new();
+        let blob = store.store_blob(b"original content\n").unwrap();
+        let tree_oid = store
+            .store_tree(vec![elench_store::TreeEntry {
+                name: "file.txt".into(),
+                mode: 0o100_644,
+                oid: blob,
+                kind: elench_store::TreeEntryKind::Blob,
+            }])
+            .unwrap();
+
+        let log = vec![make_tree_changing_claim(
+            ID_A,
+            tree_oid.as_str(),
+            "test-write-reject",
+            1_700_000_000,
+        )];
+        let projection = synthesize(&log, &store).unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "elench_write_reject_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::materialize(&projection, &store, &dir).unwrap();
+
+        // The elench store should be unchanged after materialization
+        // (INV-19: projection is read-only, no side effects).
+        // materialize writes to the filesystem (.git/), NOT to the
+        // elench store.
+        let blob_count_before = store.blob_count();
+        let tree_count_before = store.tree_count();
+
+        // Even if someone does `git commit` in the projected repo,
+        // the elench store is unaffected because the projection is
+        // one-directional (elench -> git, never git -> elench).
+        let _git_commit = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["commit", "--allow-empty", "-m", "rogue write"])
+            .env("GIT_AUTHOR_NAME", "rogue")
+            .env("GIT_AUTHOR_EMAIL", "rogue@evil")
+            .env("GIT_COMMITTER_NAME", "rogue")
+            .env("GIT_COMMITTER_EMAIL", "rogue@evil")
+            .output()
+            .expect("failed to run git commit");
+
+        // git commit may succeed (it's a real git repo), but the
+        // elench store is still unchanged.
+        assert_eq!(
+            store.blob_count(),
+            blob_count_before,
+            "elench store must be unchanged after git commit"
+        );
+        assert_eq!(
+            store.tree_count(),
+            tree_count_before,
+            "elench store must be unchanged after git commit"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

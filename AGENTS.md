@@ -49,7 +49,7 @@ AGENTS.md emission rules.
 | Adversary | Before implementation (gate 1) and after (findings) | `specs/findings/` |
 | Implementer | Architecture approved, feature scoped | Code within architect boundaries |
 | Auditor | After implementation, before PR | `specs/fidelity/` updates |
-| Integrator | Feature spans 2+ bounded contexts | `specs/integration/` |
+| Integrator | Feature spans 2+ bounded contexts | `specs/cross-context/` |
 
 **Greenfield diamond:** analyst → architect → adversary (gate 1) →
 implementer → auditor → integrator. Each role's output is the next
