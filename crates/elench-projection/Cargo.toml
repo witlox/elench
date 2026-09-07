@@ -14,5 +14,8 @@ elench-store = { path = "../elench-store" }
 thiserror = "2"
 sha2 = "0.10"
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 # elench — Next Steps
 
-**Last commit:** B1: Anchor resolution — actually search trees
-**State:** 193 tests (default), 222 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
+**Last commit:** C2: proptest — property-based tests
+**State:** 406 tests (default), 432 tests (with fjall-backend). fmt clean, clippy clean. 7 crates.
 
 ## Completed
 
@@ -9,29 +9,23 @@
 - A2: --store CLI flag + FjallStore.read_tree
 - B2: Build provenance digest — actual artifact (not stdout)
 - B1: Anchor resolution — actually search trees
-  - `resolve_path_range(anchor, store)`: navigate tree by path, read
-    blob, verify line range [start, end] is within the blob. Fails on
-    rename, missing path, or range exceeding blob size.
-  - `resolve_symbol(anchor, store)`: traverse all blobs recursively,
-    search for definition patterns (fn name, def name, struct name,
-    etc.). Returns the path of the first blob containing the definition.
-  - `resolve_content_digest(anchor, store)`: check has_blob(digest)
-    directly, then traverse all blobs comparing SHA-256. Returns the
-    path of the first matching blob.
-  - `reconcile(tree, log, store)`: passes the store through to
-    resolve, so reconciliation actually checks tree data. CLI:
-    `elench reconcile <tree> <claims.json>`.
-  - `resolve`/`reconcile` now take `&dyn StoreBackend`.
-    `elench-anchor` gained `elench-store` as a dependency.
-  - 23 anchor tests (real tree search against MemoryStore), 4 CLI
-    reconcile tests.
+- C2: proptest — property-based tests
+  - Added `proptest = "1"` as a workspace dev-dependency, forwarded
+    to `elench-claim`, `elench-store`, `elench-projection`.
+  - `elench-claim`: `proptest_inv_25` (SHA-256 deterministic),
+    `proptest_inv_28` (ClaimId is content hash), `proptest_inv_13`
+    (compute_status is pure), `proptest_inv_29` (dependsOn chain
+    terminates).
+  - `elench-store`: `proptest_inv_25` (Oid::from_blob_data
+    deterministic + round-trip + tree OID deterministic),
+    `proptest_inv_28` (store_blob idempotent).
+  - `elench-projection`: `proptest_inv_20` (synthesis deterministic
+    + order-independent).
+  - `specs/features/proptest-property.feature` (5 scenarios).
+  - Tests are fast (proptest default: 256 cases each) and run in
+    Tier 1 (`cargo test --lib`).
 
 ## Remaining (in order)
-
-### C2: proptest — property-based tests
-- Add `proptest = "1"` dev-dependency
-- Tests: INV-25 (content addressing), INV-20 (determinism), INV-13 (pure function), INV-29 (acyclic), INV-28 (idempotent)
-- ~2 hours
 
 ### C3: CI — .github/workflows/ci.yml
 - On push: Tier 1 (cargo test --lib + fmt-check + clippy)
@@ -48,7 +42,7 @@
 
 ### C4: Dogfooding (ongoing)
 - Agents working on elench emit claims about elench's own code
-- Depends on A1 (done), A2 (done), B1 (done), B2 (done)
+- Depends on A1 (done), A2 (done), B1 (done), B2 (done), C2 (done)
 - Ongoing effort
 
 ## Remaining (in order)

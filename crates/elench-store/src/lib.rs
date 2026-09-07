@@ -271,12 +271,12 @@ pub(crate) fn deserialize_tree_bytes(canonical: &[u8]) -> Result<Vec<TreeEntry>,
 /// - [`MemoryStore`]: in-memory `HashMap` (default, no deps)
 /// - `FjallStore`: persistent LSM-tree backend (optional, `fjall-backend` feature)
 ///
-/// INV-01: append-only. Objects are never modified or deleted.
-/// INV-18: elench owns the store. No git dependency.
-/// INV-26: sole source of truth. All views derive from the store.
+/// `INV-01`: append-only. Objects are never modified or deleted.
+/// `INV-18`: elench owns the store. No git dependency.
+/// `INV-26`: sole source of truth. All views derive from the store.
 pub trait StoreBackend {
     /// Store a blob. Returns the blob's OID (SHA-256 of data).
-    /// INV-01: idempotent if same data.
+    /// `INV-01`: idempotent if same data.
     ///
     /// # Errors
     ///
@@ -285,7 +285,7 @@ pub trait StoreBackend {
     fn store_blob(&mut self, data: &[u8]) -> Result<Oid, StoreError>;
 
     /// Store a tree. Returns the tree's OID.
-    /// INV-01: idempotent if same entries.
+    /// `INV-01`: idempotent if same entries.
     ///
     /// # Errors
     ///
@@ -294,7 +294,7 @@ pub trait StoreBackend {
     fn store_tree(&mut self, entries: Vec<TreeEntry>) -> Result<Oid, StoreError>;
 
     /// Store a claim. Returns the claim's OID (`cl_` + SHA-256).
-    /// INV-01: idempotent if same content.
+    /// `INV-01`: idempotent if same content.
     ///
     /// # Errors
     ///
@@ -364,9 +364,9 @@ pub trait StoreBackend {
 /// For persistence, enable the `fjall-backend` feature and use
 /// `FjallStore` instead.
 ///
-/// INV-01: append-only. Objects are never modified or deleted.
-/// INV-18: elench owns the store. No git dependency.
-/// INV-26: sole source of truth. All views derive from this store.
+/// `INV-01`: append-only. Objects are never modified or deleted.
+/// `INV-18`: elench owns the store. No git dependency.
+/// `INV-26`: sole source of truth. All views derive from this store.
 #[derive(Debug, Default)]
 pub struct MemoryStore {
     /// Blob storage: OID -> data.
@@ -390,7 +390,7 @@ impl MemoryStore {
 
 impl StoreBackend for MemoryStore {
     /// Store a blob. Returns the blob's OID (SHA-256 of data).
-    /// INV-01: if the OID already exists, the existing data is
+    /// `INV-01`: if the OID already exists, the existing data is
     /// returned without modification (append-only / idempotent).
     ///
     /// # Errors
@@ -442,7 +442,7 @@ impl StoreBackend for MemoryStore {
     }
 
     /// Store a claim. Returns the claim's OID (`cl_` + SHA-256).
-    /// INV-01: if the OID already exists, the existing claim is
+    /// `INV-01`: if the OID already exists, the existing claim is
     /// returned without modification (append-only / idempotent).
     ///
     /// # Errors
@@ -1257,5 +1257,77 @@ mod tests {
         // But read_all_claims returns both
         let all = store.read_all_claims().unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    // --- Property-based tests (proptest) ---
+
+    use proptest::prelude::*;
+
+    /// `INV-25`: `Oid::from_blob_data` is deterministic — same content,
+    /// same OID; different content, different OID.
+    #[test]
+    fn proptest_inv_25_oid_from_blob_data_deterministic() {
+        proptest!(|(data in any::<Vec<u8>>())| {
+            let oid1 = Oid::from_blob_data(&data);
+            let oid2 = Oid::from_blob_data(&data);
+            prop_assert_eq!(&oid1, &oid2);
+            prop_assert_eq!(oid1.as_str().len(), 64);
+        });
+
+        proptest!(|(a in any::<Vec<u8>>(), b in any::<Vec<u8>>())| {
+            let oid_a = Oid::from_blob_data(&a);
+            let oid_b = Oid::from_blob_data(&b);
+            if a != b {
+                prop_assert_ne!(oid_a, oid_b);
+            }
+        });
+    }
+
+    /// `INV-28` (store layer): `store_blob` is idempotent — storing the
+    /// same data twice returns the same OID and doesn't increase the
+    /// count.
+    #[test]
+    fn proptest_inv_28_store_blob_idempotent() {
+        proptest!(|(data in any::<Vec<u8>>())| {
+            let mut store = MemoryStore::new();
+            let oid1 = store.store_blob(&data).unwrap();
+            let oid2 = store.store_blob(&data).unwrap();
+            prop_assert_eq!(&oid1, &oid2);
+            prop_assert_eq!(store.blob_count(), 1);
+        });
+    }
+
+    /// `INV-25` (store layer): reading back a stored blob returns the
+    /// original data, and the OID matches `from_blob_data`.
+    #[test]
+    fn proptest_inv_25_store_blob_round_trip() {
+        proptest!(|(data in any::<Vec<u8>>())| {
+            let mut store = MemoryStore::new();
+            let oid = store.store_blob(&data).unwrap();
+            let expected = Oid::from_blob_data(&data);
+            prop_assert_eq!(&oid, &expected);
+            let read_back = store.read_blob(&oid).unwrap();
+            prop_assert_eq!(read_back, data);
+        });
+    }
+
+    /// `INV-25` (store layer): tree OID is deterministic — same entries
+    /// (in any order, since `from_entries` sorts) produce the same OID.
+    #[test]
+    fn proptest_inv_25_tree_oid_deterministic() {
+        fn arb_entry() -> impl Strategy<Value = TreeEntry> {
+            (any::<Vec<u8>>()).prop_map(|data| TreeEntry {
+                name: format!("f{}", data.len()),
+                mode: 0o100_644,
+                oid: Oid::from_blob_data(&data),
+                kind: TreeEntryKind::Blob,
+            })
+        }
+
+        proptest!(|(entries in prop::collection::vec(arb_entry(), 0..5))| {
+            let oid1 = Oid::from_tree_entries(&entries);
+            let oid2 = Oid::from_tree_entries(&entries);
+            prop_assert_eq!(oid1, oid2);
+        });
     }
 }

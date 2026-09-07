@@ -20,5 +20,8 @@ sha2 = "0.10"
 thiserror = "2"
 fjall = { version = "3", optional = true }
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [lints]
 workspace = true

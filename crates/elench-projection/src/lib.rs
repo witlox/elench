@@ -725,4 +725,73 @@ mod tests {
         assert!(!log_output.contains("harness-observed"));
         assert!(!log_output.contains("agent-asserted"));
     }
+
+    // --- Property-based tests (proptest) ---
+
+    use proptest::prelude::*;
+
+    /// INV-20: git synthesis is deterministic — same claim log +
+    /// same store, same commit OIDs and tree OIDs, byte-for-byte.
+    #[test]
+    fn proptest_inv_20_synthesis_deterministic() {
+        proptest!(|(n in 1usize..10)| {
+            let log: Vec<Claim> = (0..n)
+                .map(|i| make_tree_changing_claim(
+                    &format!("cl_{i:064}"),
+                    &format!("{i:064}"),
+                    &format!("producer-{i}"),
+                    1_700_000_000 + i64::try_from(i).unwrap_or(0),
+                ))
+                .collect();
+            let store = elench_store::Store::new();
+
+            let proj1 = synthesize(&log, &store).unwrap();
+            let proj2 = synthesize(&log, &store).unwrap();
+
+            // Commit OIDs
+            let commits1: Vec<&str> = proj1.commits.iter().map(|c| c.oid.as_str()).collect();
+            let commits2: Vec<&str> = proj2.commits.iter().map(|c| c.oid.as_str()).collect();
+            prop_assert_eq!(commits1, commits2);
+
+            // Tree OIDs
+            let trees1: Vec<&str> = proj1.trees.iter().map(|t| t.oid.as_str()).collect();
+            let trees2: Vec<&str> = proj2.trees.iter().map(|t| t.oid.as_str()).collect();
+            prop_assert_eq!(trees1, trees2);
+
+            // git log output is byte-identical
+            let log1 = git_log_oneline(&proj1);
+            let log2 = git_log_oneline(&proj2);
+            prop_assert_eq!(log1, log2);
+        });
+    }
+
+    /// INV-20: synthesis is deterministic regardless of input claim
+    /// ordering. The log is sorted by (timestamp, id) internally, so
+    /// shuffling the input must produce the same projection.
+    #[test]
+    fn proptest_inv_20_synthesis_order_independent() {
+        proptest!(|(n in 2usize..8)| {
+            let mut log: Vec<Claim> = (0..n)
+                .map(|i| make_tree_changing_claim(
+                    &format!("cl_{i:064}"),
+                    &format!("{i:064}"),
+                    &format!("producer-{i}"),
+                    1_700_000_000 + i64::try_from(i).unwrap_or(0),
+                ))
+                .collect();
+
+            let store = elench_store::Store::new();
+            let proj_sorted = synthesize(&log, &store).unwrap();
+
+            // Reverse the log — should produce the same projection.
+            log.reverse();
+            let proj_rev = synthesize(&log, &store).unwrap();
+
+            let commits_sorted: Vec<&str> =
+                proj_sorted.commits.iter().map(|c| c.oid.as_str()).collect();
+            let commits_rev: Vec<&str> =
+                proj_rev.commits.iter().map(|c| c.oid.as_str()).collect();
+            prop_assert_eq!(commits_sorted, commits_rev);
+        });
+    }
 }

@@ -46,7 +46,7 @@ impl ClaimId {
 
     /// Compute the content address of a claim: SHA-256 of its canonical
     /// JSON serialization (all fields except `id`), prefixed with `cl_`.
-    /// INV-28: two claims with identical content get the same OID.
+    /// `INV-28`: two claims with identical content get the same OID.
     #[must_use]
     pub fn from_content(claim: &Claim) -> Self {
         let canonical = canonical_json(claim);
@@ -441,7 +441,7 @@ fn dep_transitively_depends_on(
 
 /// Compute a claim's status by folding the log.
 ///
-/// INV-04: pure function, no stored status. The status is computed
+/// `INV-04`: pure function, no stored status. The status is computed
 /// from the claims that target this one.
 ///
 /// - Default: `Unevaluated` (no verification or falsification targets it).
@@ -454,7 +454,7 @@ fn dep_transitively_depends_on(
 /// `Unevaluated`. If a falsification record is itself falsified, the
 /// target reverts to its previous status.
 ///
-/// INV-29: cycle detection via a visited set prevents infinite
+/// `INV-29`: cycle detection via a visited set prevents infinite
 /// recursion. If a cycle is detected in the targeting graph, returns
 /// [`StatusError::CyclicDependency`].
 ///
@@ -544,7 +544,7 @@ fn compute_status_inner(
 /// falsified claim. Every claim that transitively depends on the
 /// given claim is in the blast radius.
 ///
-/// INV-29: cycle detection prevents infinite loops. If a cycle is
+/// `INV-29`: cycle detection prevents infinite loops. If a cycle is
 /// detected, it is reported but does not cause a panic.
 ///
 /// # Errors
@@ -1967,5 +1967,101 @@ mod tests {
         assert!(!obj.contains_key("target") || obj["target"].as_array().unwrap().is_empty());
         assert!(!obj.contains_key("evidence") || obj["evidence"].as_array().unwrap().is_empty());
         assert!(!obj.contains_key("dependsOn") || obj["dependsOn"].as_array().unwrap().is_empty());
+    }
+
+    // --- Property-based tests (proptest) ---
+
+    use proptest::prelude::*;
+
+    /// `INV-25`: content addressing is deterministic — same content,
+    /// same SHA-256; different content, different SHA-256. (Uses the
+    /// same SHA-256 that elench-store's `Oid::from_blob_data` uses.)
+    #[test]
+    fn proptest_inv_25_content_addressing_deterministic() {
+        use sha2::{Digest, Sha256};
+
+        proptest!(|(data in any::<Vec<u8>>())| {
+            let h1 = Sha256::digest(&data);
+            let h2 = Sha256::digest(&data);
+            prop_assert_eq!(format!("{h1:x}"), format!("{h2:x}"));
+        });
+
+        proptest!(|(a in any::<Vec<u8>>(), b in any::<Vec<u8>>())| {
+            let ha = Sha256::digest(&a);
+            let hb = Sha256::digest(&b);
+            if a != b {
+                prop_assert_ne!(format!("{ha:x}"), format!("{hb:x}"));
+            }
+        });
+    }
+
+    /// `INV-28`: `ClaimId::from_content` is a content hash — two claims
+    /// with identical fields produce the same `ClaimId`.
+    #[test]
+    fn proptest_inv_28_claim_oid_is_content_hash() {
+        proptest!(|(text in ".{0,100}")| {
+            let mut claim_a = make_claim(
+                "cl_0000000000000000000000000000000000000000000000000000000000000000",
+                ClaimKind::Assertion,
+                OriginKind::AgentAsserted,
+            );
+            claim_a.assertion = AssertionForm::Annotation { text: text.clone() };
+            let mut claim_b = make_claim(
+                "cl_9999999999999999999999999999999999999999999999999999999999999999",
+                ClaimKind::Assertion,
+                OriginKind::AgentAsserted,
+            );
+            claim_b.assertion = AssertionForm::Annotation { text };
+            // Different `id` fields are ignored — content hash is over
+            // all fields except `id`.
+            let id_a = ClaimId::from_content(&claim_a);
+            let id_b = ClaimId::from_content(&claim_b);
+            prop_assert_eq!(id_a, id_b);
+        });
+    }
+
+    /// `INV-13`: `compute_status` is a pure function — same inputs,
+    /// same output, no side effects.
+    #[test]
+    fn proptest_inv_13_compute_status_is_pure() {
+        proptest!(|(n in 0usize..10)| {
+            let log: Vec<Claim> = (0..n)
+                .map(|i| make_claim(
+                    &format!("cl_{i:064}"),
+                    ClaimKind::Assertion,
+                    OriginKind::AgentAsserted,
+                ))
+                .collect();
+            let claim_id = &log.first().map(|c| c.id.clone());
+            if let Some(id) = claim_id {
+                let result1 = compute_status(id, &log);
+                let result2 = compute_status(id, &log);
+                prop_assert_eq!(result1, result2);
+            }
+        });
+    }
+
+    /// `INV-29`: dependsOn is acyclic — a log of N claims each depending
+    /// on the previous one (a chain, not a cycle) must resolve without
+    /// hanging. A cycle is rejected by `validate_claim`; here we verify
+    /// that chains (the common case) always terminate.
+    #[test]
+    fn proptest_inv_29_depends_on_acyclic_chain_terminates() {
+        proptest!(|(n in 1usize..20)| {
+            let mut log: Vec<Claim> = Vec::with_capacity(n);
+            for i in 0..n {
+                let id_str = format!("cl_{i:064}");
+                let mut claim = make_claim(&id_str, ClaimKind::Assertion, OriginKind::AgentAsserted);
+                if i > 0 {
+                    let prev = format!("cl_{:064}", i - 1);
+                    claim.depends_on = vec![ClaimId::new(&prev).unwrap()];
+                }
+                log.push(claim);
+            }
+            // compute_status on the last claim must terminate.
+            let last = log.last().unwrap().id.clone();
+            let result = compute_status(&last, &log);
+            prop_assert!(result.is_ok(), "compute_status must terminate: {result:?}");
+        });
     }
 }
