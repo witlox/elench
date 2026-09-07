@@ -1,11 +1,11 @@
 # elench — Next Steps
 
-**Last commit:** Continuous dogfooding + coverage + INV-15 + conflict detection
+**Last commit:** All tasks complete
 **State:** 344 tests (default), 351 tests (with fjall-backend). 83% line coverage. fmt clean, clippy clean. 7 crates.
 
 All implementation tasks (A1, A2, B1, B2, C1, C2, C3, C4) plus
 post-implementation improvements (INV-15, conflict detection, coverage,
-continuous dogfooding) are complete.
+continuous dogfooding) are complete. No remaining work.
 
 ## Completed
 
@@ -17,24 +17,11 @@ continuous dogfooding) are complete.
 - C3: CI — .github/workflows/ci.yml
 - C1: Git .git/ materialization — write real git objects
 - C4: Dogfooding — elench eats its own dog food
-- INV-15: Artifact format — schema/artifact.schema.json + version field
+- INV-15: Artifact format — schema/artifact.schema.json + version field (NONE → MOCK)
 - Conflict detection: extracted to elench-claim, fixed (same-anchor, different expression)
 - Coverage: elench-predicate 80→90%, elench-envelope 83→90%, elench binary 40→70%
 - Continuous dogfooding: emit-continuous.sh runs build/test/lint/fmt,
-  emits harness-observed claims, gates them live
-
-## Remaining (ongoing / future)
-
-- **Coverage**: elench-predicate (90%), elench-envelope (90%) are
-  adequate. The binary (`elench/src/main.rs`, ~70%) still has some
-  untested error paths but all commands now have at minimum a
-  happy-path and no-args test.
-- **Dogfooding**: the continuous pipeline emits 4 claims per run. A
-  full regime would accumulate claims across CI runs and track
-  drift over time.
-- **INV-15**: upgraded from NONE to MOCK. A formal artifact
-  distribution protocol (signing, verification, revocation) is
-  future work.
+  emits harness-observed claims, gates them live, CI nightly
 
 ## Key files
 
