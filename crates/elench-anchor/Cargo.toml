@@ -9,8 +9,8 @@ repository.workspace = true
 description = "Multi-strategy anchor resolution (E1: strategy=multi)"
 
 [dependencies]
-elench-claim = { path = "../elench-claim", version = "2026.8.47" }
-elench-store = { path = "../elench-store", version = "2026.8.47" }
+elench-claim = { path = "../elench-claim", version = "2026.8.56" }
+elench-store = { path = "../elench-store", version = "2026.8.56" }
 thiserror = "2"
 
 [lints]

@@ -44,7 +44,7 @@ rm -f Cargo.toml.bak
 # Patch path dependency versions in all crate Cargo.toml files
 # (cargo-deny rejects path deps without a version as wildcards)
 for crate_toml in crates/*/Cargo.toml; do
-    sed -i.bak "s/\(elench-[a-z]* = { path = \".*\", version = \)".*/\1\"${FULL_VERSION}\" }/" "$crate_toml"
+    sed -i.bak "/elench-.*path =/s/version = \".*\"/version = \"${FULL_VERSION}\"/" "$crate_toml"
     rm -f "${crate_toml}.bak"
 done
 
