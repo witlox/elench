@@ -56,8 +56,12 @@
 # Experiments
 
 - [E0 — Predicate Ratio](experiments/E0-predicate-ratio.md)
+- [E0 — Predicate Ratio (Result)](experiments/E0-predicate-ratio-result.md)
+- [E0 — Session Selection](experiments/E0-session-selection.md)
 - [E1 — Anchor Survival](experiments/E1-anchor-survival.md)
+- [E1 — Anchor Survival (Result)](experiments/E1-anchor-survival-result.md)
 - [E2 — Build Reproducibility](experiments/E2-build-reproducibility.md)
+- [E2 — Build Reproducibility (Result)](experiments/E2-build-reproducibility-result.md)
 
 # Dogfooding
 
