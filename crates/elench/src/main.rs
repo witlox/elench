@@ -786,9 +786,7 @@ fn cmd_store(args: &[String], store_config: &StoreConfig) {
                             eprintln!("elench store tree: failed to store blob: {e}");
                             std::process::exit(1);
                         });
-                        let name = path
-                            .file_name()
-                            .map_or_else(|| file_path.clone(), |n| n.to_string_lossy().to_string());
+                        let name = file_path.replace(['/', '\\'], "_");
                         entries.push(elench_store::TreeEntry {
                             name,
                             mode: 0o100_644,

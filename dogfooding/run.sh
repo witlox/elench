@@ -65,21 +65,21 @@ GIT_DIR="$OUTPUT/git"
 # minimal tree from the actual source files referenced by the claims,
 # store it in a fjall-backed store, then materialize.
 STORE_DIR="$OUTPUT/store-db"
-"$ELENCH" --store fjall "$STORE_DIR" store tree \
-    "$ROOT/crates/elench-store/src/lib.rs" \
-    "$ROOT/crates/elench-claim/src/lib.rs" \
-    "$ROOT/crates/elench-projection/src/lib.rs" \
-    "$ROOT/crates/elench-gate/src/lib.rs" \
-    "$ROOT/crates/elench-envelope/src/lib.rs" \
-    2>&1 | head -5
+(cd "$ROOT" && "$ELENCH" --store fjall "$STORE_DIR" store tree \
+    crates/elench-store/src/lib.rs \
+    crates/elench-claim/src/lib.rs \
+    crates/elench-projection/src/lib.rs \
+    crates/elench-gate/src/lib.rs \
+    crates/elench-envelope/src/lib.rs \
+    2>&1 | head -5)
 
 # Get the tree OID from the store output
-TREE_OID=$("$ELENCH" --store fjall "$STORE_DIR" store tree \
-    "$ROOT/crates/elench-store/src/lib.rs" \
-    "$ROOT/crates/elench-claim/src/lib.rs" \
-    "$ROOT/crates/elench-projection/src/lib.rs" \
-    "$ROOT/crates/elench-gate/src/lib.rs" \
-    "$ROOT/crates/elench-envelope/src/lib.rs" \
+TREE_OID=$(cd "$ROOT" && "$ELENCH" --store fjall "$STORE_DIR" store tree \
+    crates/elench-store/src/lib.rs \
+    crates/elench-claim/src/lib.rs \
+    crates/elench-projection/src/lib.rs \
+    crates/elench-gate/src/lib.rs \
+    crates/elench-envelope/src/lib.rs \
     2>&1 | grep '^tree:' | awk '{print $2}')
 
 if [ -n "$TREE_OID" ]; then
