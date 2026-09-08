@@ -11,8 +11,8 @@
 # Reference
 
 - [CLI Reference](reference/cli.md)
-- [Claim Schema](https://github.com/witlox/elench/blob/main/schema/claim.schema.json)
-- [Artifact Schema](https://github.com/witlox/elench/blob/main/schema/artifact.schema.json)
+- [Claim Schema](reference/claim-schema.md)
+- [Artifact Schema](reference/artifact-schema.md)
 
 # Architecture
 
@@ -22,32 +22,44 @@
 - [Anchoring](anchoring.md)
 - [Release Policy](release-policy.md)
 - [Operations](operations/overview.md)
-- [Module Graph](https://github.com/witlox/elench/blob/main/specs/architecture/module-graph.md)
-- [API Contracts](https://github.com/witlox/elench/blob/main/specs/architecture/api-contracts.md)
-- [Enforcement Map](https://github.com/witlox/elench/blob/main/specs/architecture/enforcement-map.md)
-- [Error Taxonomy](https://github.com/witlox/elench/blob/main/specs/architecture/error-taxonomy.md)
-- [Build Phases](https://github.com/witlox/elench/blob/main/specs/architecture/build-phases.md)
-- [ADRs](https://github.com/witlox/elench/tree/main/specs/architecture/adr)
+- [Module Graph](specs/architecture/module-graph.md)
+- [API Contracts](specs/architecture/api-contracts.md)
+- [Enforcement Map](specs/architecture/enforcement-map.md)
+- [Error Taxonomy](specs/architecture/error-taxonomy.md)
+- [Build Phases](specs/architecture/build-phases.md)
+
+---
+
+# ADRs
+
+- [0001 — elench is Substrate](specs/architecture/adr/0001-elench-is-substrate.md)
+- [0002 — Git is Projection](specs/architecture/adr/0002-git-is-projection.md)
+- [0003 — DSSE Envelopes](specs/architecture/adr/0003-dsse-in-toto-envelopes.md)
+- [0004 — Predicate Language](specs/architecture/adr/0004-predicate-language.md)
+- [0005 — Implementation Substrate](specs/architecture/adr/0005-implementation-substrate.md)
+- [0006 — Validator is Unimplemented Debt](specs/architecture/adr/0006-validator-is-unimplemented-debt.md)
+- [0007 — Deterministic Commit Synthesis](specs/architecture/adr/0007-deterministic-commit-synthesis.md)
+- [0008 — Persistent Store (fjall)](specs/architecture/adr/0008-persistent-store-fjall.md)
 
 # Specifications
 
-- [Ubiquitous Language](https://github.com/witlox/elench/blob/main/specs/ubiquitous-language.md)
-- [Domain Model](https://github.com/witlox/elench/blob/main/specs/domain-model.md)
-- [Invariants](https://github.com/witlox/elench/blob/main/specs/invariants.md)
-- [Assumptions](https://github.com/witlox/elench/blob/main/specs/assumptions.md)
-- [Failure Modes](https://github.com/witlox/elench/blob/main/specs/failure-modes.md)
-- [Cross-Context Interactions](https://github.com/witlox/elench/blob/main/specs/cross-context/interactions.md)
-- [Fidelity Index](https://github.com/witlox/elench/blob/main/specs/fidelity/INDEX.md)
-- [Feature Files](https://github.com/witlox/elench/tree/main/specs/features)
-- [Adversarial Findings](https://github.com/witlox/elench/blob/main/specs/findings/ADVERSARY-SWEEP.md)
+- [Ubiquitous Language](specs/ubiquitous-language.md)
+- [Domain Model](specs/domain-model.md)
+- [Invariants](specs/invariants.md)
+- [Assumptions](specs/assumptions.md)
+- [Failure Modes](specs/failure-modes.md)
+- [Cross-Context Interactions](specs/cross-context/interactions.md)
+- [Fidelity Index](specs/fidelity/INDEX.md)
+- [Feature Files](reference/feature-files.md)
+- [Adversarial Findings](specs/findings/ADVERSARY-SWEEP.md)
 
 # Experiments
 
-- [E0 — Predicate Ratio](https://github.com/witlox/elench/blob/main/experiments/E0-predicate-ratio.md)
-- [E1 — Anchor Survival](https://github.com/witlox/elench/blob/main/experiments/E1-anchor-survival.md)
-- [E2 — Build Reproducibility](https://github.com/witlox/elench/blob/main/experiments/E2-build-reproducibility.md)
+- [E0 — Predicate Ratio](experiments/E0-predicate-ratio.md)
+- [E1 — Anchor Survival](experiments/E1-anchor-survival.md)
+- [E2 — Build Reproducibility](experiments/E2-build-reproducibility.md)
 
 # Dogfooding
 
-- [Dogfooding README](https://github.com/witlox/elench/blob/main/dogfooding/README.md)
-- [Continuous Emission](https://github.com/witlox/elench/blob/main/dogfooding/emit-continuous.sh)
+- [Dogfooding README](dogfooding/README.md)
+- [Continuous Emission](reference/emit-continuous.md)

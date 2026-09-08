@@ -5,6 +5,9 @@ authors = ["Pim Witlox"]
 language = "en"
 src = "docs"
 
+[build]
+create-missing = false
+
 [output.html]
 default-theme = "navy"
 preferred-dark-theme = "navy"
