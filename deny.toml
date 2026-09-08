@@ -31,6 +31,7 @@ allow = [
     "0BSD",
     "BlueOak-1.0.0",
     "CC0-1.0",
+    "BSL-1.0",
 ]
 confidence-threshold = 0.93
 

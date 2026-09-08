@@ -18,13 +18,13 @@ default = []
 fjall-backend = ["elench-store/fjall-backend"]
 
 [dependencies]
-elench-claim = { path = "../elench-claim" }
-elench-envelope = { path = "../elench-envelope" }
-elench-store = { path = "../elench-store" }
-elench-gate = { path = "../elench-gate" }
-elench-predicate = { path = "../elench-predicate" }
-elench-projection = { path = "../elench-projection" }
-elench-anchor = { path = "../elench-anchor" }
+elench-claim = { path = "../elench-claim", version = "2026.8.47" }
+elench-envelope = { path = "../elench-envelope", version = "2026.8.47" }
+elench-store = { path = "../elench-store", version = "2026.8.47" }
+elench-gate = { path = "../elench-gate", version = "2026.8.47" }
+elench-predicate = { path = "../elench-predicate", version = "2026.8.47" }
+elench-projection = { path = "../elench-projection", version = "2026.8.47" }
+elench-anchor = { path = "../elench-anchor", version = "2026.8.47" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ed25519-dalek = "3.0.0"

@@ -9,8 +9,8 @@ repository.workspace = true
 description = "Git projection — deterministic synthesis of git objects from the claim log"
 
 [dependencies]
-elench-claim = { path = "../elench-claim" }
-elench-store = { path = "../elench-store" }
+elench-claim = { path = "../elench-claim", version = "2026.8.47" }
+elench-store = { path = "../elench-store", version = "2026.8.47" }
 thiserror = "2"
 sha2 = "0.10"
 flate2 = { workspace = true }
